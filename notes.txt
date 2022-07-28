@@ -3,3 +3,8 @@
 1. https://choosealicense.com/
 2. https://github.com/fakhrip/pyindo
 3. https://en.wikipedia.org/wiki/Reserved_word
+4. https://docs.python.org/3/library/dis.html
+5. https://github.com/rocky/python-xasm
+6. https://github.com/python/cpython/blob/main/Include/opcode.h
+7. https://bytecode.readthedocs.io/en/latest/usage.html
+8. https://en.wikipedia.org/wiki/Finite-state_machine

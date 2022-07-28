@@ -1,4 +1,5 @@
 from sys import argv
+from bytecode import Instr, Bytecode
 
 
 def help():
@@ -21,4 +22,29 @@ if __name__ == "__main__":
     with open(f_input, "r") as f:
         f_buffer = f.read().split("\n")
 
-# open("")
+        is_entrypoint_exist = False
+        bytecode = []
+
+        for line in f_buffer:
+            if "utama() {" in line:
+                is_entrypoint_exist = True
+
+            if "tampilkan(" in (stripped_line := line.strip()):
+                bytecode.append(Instr("LOAD_NAME", "print"))
+
+                argument = stripped_line.replace("tampilkan(\"", "")
+                argument = argument.replace("\");", "")
+                argument = argument.strip()
+
+                bytecode.append(Instr("LOAD_CONST", argument))
+                bytecode.append(Instr("CALL_FUNCTION", 1))
+
+        bytecode.extend([
+            Instr("POP_TOP"), 
+            Instr("LOAD_CONST", None), 
+            Instr("RETURN_VALUE")
+        ])
+
+        compiled_bytecode = Bytecode(bytecode)
+        code = compiled_bytecode.to_code()
+        exec(code)

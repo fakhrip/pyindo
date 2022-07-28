@@ -1,0 +1,4 @@
+utama() {
+    tampilkan("halo dunia!");
+    return 1337;
+}

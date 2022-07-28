@@ -1,0 +1,3 @@
+utama() {
+    tampilkan("test");
+}

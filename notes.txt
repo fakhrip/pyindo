@@ -1,0 +1,4 @@
+# Useful Links
+
+1. https://choosealicense.com/
+2. https://github.com/fakhrip/pyindo

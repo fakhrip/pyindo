@@ -1,18 +1,17 @@
 from os import (
     EX_USAGE,  # Exit code that means that some kind of configuration error occurred.
     EX_NOINPUT,  # Exit code that means an input file did not exist or was not readable.
-    EX_SOFTWARE,  # Exit code that means an internal software error was detected.
 )
 from os.path import isfile
-from sys import argv, argc, exit
-from bytecode import Instr, Bytecode
+from sys import argv, exit
+from compiler import compile
 
 
 def help(exit_code=EX_USAGE) -> None:
     """
     Show usage of the program
     """
-    
+
     print(
         """\rUsage: python main.py [input file] [options]
         \r
@@ -25,17 +24,6 @@ def help(exit_code=EX_USAGE) -> None:
         \r          filename: [input file name].pyc"""
     )
     exit(exit_code)
-
-
-def error(statement, line_number=None) -> None:
-    """
-    Show error statement if there are any, including
-    the line number in which the error happened
-    """
-
-    line_number_str = f" (on line number {line_number})" if line_number else ""
-    print(f"\rError: {statement}{line_number_str}")
-    exit(EX_SOFTWARE)
 
 
 def parse_argument() -> tuple[str, dict]:
@@ -56,7 +44,7 @@ def parse_argument() -> tuple[str, dict]:
 
     # Get the second argument and check if
     # the file actually exist or not
-    f_input = argv.pop(1)
+    f_input = argv.pop(0)
     if not isfile(f_input):
         help(EX_NOINPUT)
 
@@ -76,7 +64,7 @@ def parse_argument() -> tuple[str, dict]:
 
 
 if __name__ == "__main__":
-    if argc < 2:
+    if len(argv) < 2:
         help()
 
     # Get the first argument to the program as a file input
@@ -86,41 +74,5 @@ if __name__ == "__main__":
     with open(f_input, "r") as f:
         f_buffer = f.read().split("\n")
 
-        is_entrypoint_exist = False
-        return_value = 0
-        bytecode = []
-
-        for line_num, line in enumerate(f_buffer):
-            if "utama() {" in line:
-                is_entrypoint_exist = True
-
-            if "tampilkan(" in (stripped_line := line.strip()):
-                bytecode.append(Instr("LOAD_NAME", "print"))
-
-                argument = stripped_line.replace('tampilkan("', "")
-                argument = argument.replace('");', "")
-                argument = argument.strip()
-
-                bytecode.append(Instr("LOAD_CONST", argument))
-                bytecode.append(Instr("CALL_FUNCTION", 1))
-
-            if "return" in line:
-                try:
-                    return_value = line.replace("return", "")
-                    return_value = return_value.replace(";", "")
-                    return_value = int(return_value)
-                except:
-                    error("Return value should be integer", line_number=line_num)
-
-        if not is_entrypoint_exist:
-            error(
-                "Entrypoint is not exist, you should create it first using `utama()` function"
-            )
-
-        bytecode.extend(
-            [Instr("POP_TOP"), Instr("LOAD_CONST", return_value), Instr("RETURN_VALUE")]
-        )
-
-        compiled_bytecode = Bytecode(bytecode)
-        code = compiled_bytecode.to_code()
-        exec(code)
+        compiled_bytecode = compile(f_buffer)
+        exec(compiled_bytecode.to_code())

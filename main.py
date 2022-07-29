@@ -5,6 +5,9 @@ from os import (
 from os.path import isfile
 from sys import argv, exit
 from compiler import compile
+from bytecode import dump_bytecode
+from contextlib import redirect_stdout
+from io import StringIO
 
 
 def help(exit_code=EX_USAGE) -> None:
@@ -20,8 +23,8 @@ def help(exit_code=EX_USAGE) -> None:
         \r
         \rAvailable options: 
         \r  -O      Enable program optimizations 
-        \r  -D      Output python bytecode result
-        \r          filename: [input file name].pyc"""
+        \r  -D      Output python bytecode disassembly result
+        \r          wiht filename: [input file name].pyc"""
     )
     exit(exit_code)
 
@@ -50,7 +53,7 @@ def parse_argument() -> tuple[str, dict]:
 
     # Track which options are enabled
     # and what value is given to each of them
-    enabled_options = []
+    enabled_options = {}
     for arg in argv:
         match arg:
             case "-O":
@@ -60,7 +63,7 @@ def parse_argument() -> tuple[str, dict]:
             case _:
                 help()
 
-    return f_input
+    return (f_input, enabled_options)
 
 
 if __name__ == "__main__":
@@ -68,7 +71,7 @@ if __name__ == "__main__":
         help()
 
     # Get the first argument to the program as a file input
-    f_input = parse_argument()
+    f_input, enabled_options = parse_argument()
 
     # Read the file input given in the first argument
     with open(f_input, "r") as f:
@@ -76,3 +79,11 @@ if __name__ == "__main__":
 
         compiled_bytecode = compile(f_buffer)
         exec(compiled_bytecode.to_code())
+
+        if "debug_output" in enabled_options.keys():
+            f = StringIO()
+            with redirect_stdout(f):
+                dump_bytecode(compiled_bytecode, lineno=True)
+
+            disassembly = f.getvalue()
+            open(f_input.replace(".pyind", ".pyc"), "w").write(disassembly)

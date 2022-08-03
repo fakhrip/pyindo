@@ -2,8 +2,8 @@ from os import popen
 from glob import glob
 
 if __name__ == "__main__":
-    incorrect_programs, incorrect_programs_out = [glob("tests/error/*.pyind"), glob("tests/error/*.output")]
-    correct_programs, correct_programs_out = [glob("tests/success/*.pyind"), glob("tests/success/*.output")]
+    incorrect_programs, incorrect_programs_out = [sorted(glob("tests/error/*.pyind")), sorted(glob("tests/error/*.output"))]
+    correct_programs, correct_programs_out = [sorted(glob("tests/success/*.pyind")), sorted(glob("tests/success/*.output"))]
 
     print("==============================")
     print("[+] Testing incorrect programs")

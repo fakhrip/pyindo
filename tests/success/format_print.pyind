@@ -1,0 +1,3 @@
+fungsi utama() {
+    tampilkan("1 tambah 1 adalah ${1 + 1}")
+}

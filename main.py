@@ -5,6 +5,7 @@ from os import (
 from os.path import isfile
 from sys import argv, exit
 from compiler import compile
+from parser import parse
 from bytecode import dump_bytecode
 from contextlib import redirect_stdout
 from io import StringIO
@@ -75,9 +76,10 @@ if __name__ == "__main__":
 
     # Read the file input given in the first argument
     with open(f_input, "r") as f:
-        f_buffer = f.read().split("\n")
+        f_buffer = f.read()
 
-        compiled_bytecode = compile(f_buffer)
+        bytecodes = parse(f_buffer)
+        compiled_bytecode = compile(bytecodes)
         exec(compiled_bytecode.to_code())
 
         if "debug_output" in enabled_options.keys():

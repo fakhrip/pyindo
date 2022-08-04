@@ -198,8 +198,10 @@ def parse_program(program_buffer: str) -> list:
                         token_list.append(parsed_buffer[:-1])
                         token_list.append(TOKENS['"'])
                         is_in_quote = False
+
                     else:
                         # Opening double quote
+                        token_list.append(TOKENS[parsed_buffer])
                         is_in_quote = True
 
                     parsed_buffer = ""

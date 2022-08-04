@@ -22,10 +22,10 @@ def format_print(string_args: list, line_number: int, is_global_scope: bool) -> 
     bytecodes.extend(
         [
             Instr("BUILD_STRING", len(string_args)),
-            Instr("CALL_FUNCTION", 1),
+            Instr("LOAD_CONST", ""),
+            Instr("LOAD_CONST", ("end",)),
+            Instr("CALL_FUNCTION_KW", 2),
             Instr("POP_TOP"),
-            Instr("LOAD_CONST", None),
-            Instr("RETURN_VALUE"),
         ]
     )
 

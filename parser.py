@@ -47,7 +47,7 @@ def error(statement, line_number=None) -> None:
     """
 
     line_number_str = f" (on line number {line_number})" if line_number else ""
-    print(f"\rError: {statement}{line_number_str}")
+    print(f"\rError: {statement}{line_number_str}", end="")
     exit(EX_SOFTWARE)
 
 

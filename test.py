@@ -24,9 +24,9 @@ if __name__ == "__main__":
 
         print(f"[{iteration + 1}] {program} ", end="")
         if program_out == expected_out:
-            print("(PASSED)")
+            print("\033[92m(PASSED)\033[0m")
         else:
-            print("(FAIL)")
+            print("\033[91m(FAIL)\033[0m")
             print(f"Expected: `{expected_out}`")
             print(f"Got: `{program_out}`", end="\n\n")
 
@@ -43,8 +43,8 @@ if __name__ == "__main__":
 
         print(f"[{iteration + 1}] {program} ", end="")
         if program_out == expected_out:
-            print("(PASSED)")
+            print("\033[92m(PASSED)\033[0m")
         else:
-            print("(FAIL)")
+            print("\033[91m(FAIL)\033[0m")
             print(f"Expected: `{expected_out}`")
             print(f"Got: `{program_out}`", end="\n\n")

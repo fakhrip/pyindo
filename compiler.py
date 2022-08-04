@@ -1,7 +1,7 @@
 from bytecode import Instr, Bytecode
 
 
-def print_function(string_args: list) -> list:
+def format_print(string_args: list) -> list:
     bytecodes = []
 
     bytecodes.append(Instr("LOAD_NAME", "print"))
@@ -25,5 +25,22 @@ def print_function(string_args: list) -> list:
     return bytecodes
 
 
-def compile(bytecodes: list) -> Bytecode:
+def define_function(
+    function_name: str, function_param: list, is_entrypoint_function: bool
+) -> list:
+    bytecodes = []
+
+    if is_entrypoint_function:
+        # Function definition for entrypoint
+        # TODO: handle function definition for entrypoint
+        print("TODO (handle function definition for entrypoint)")
+    else:
+        # Function definition for other functions
+        # TODO: handle function definition for other functions
+        print("TODO (handle function definition for other functions)")
+
+    return bytecodes
+
+
+def compile_bytecodes(bytecodes: list) -> Bytecode:
     return Bytecode(bytecodes)

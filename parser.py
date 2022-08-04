@@ -30,6 +30,11 @@ RESERVED_KEYWORD = [
 
 
 def token_to_string(token: int) -> str:
+    """
+    Convert back the token number to
+    its corresponding token string
+    """
+
     return list(TOKENS.keys())[list(TOKENS.values()).index(token)]
 
 
@@ -151,10 +156,18 @@ def parse_program(program_buffer: str) -> list:
                         error("Expecting '{' but have reached the End Of File")
                 else:
                     # Function call
+                    function_name = (
+                        token_to_string(
+                            (cur_token := token_list[opening_brace_pos - 2])
+                        )
+                        if cur_token in TOKENS.keys()
+                        else cur_token
+                    )
+
                     if scope_level == 0:
                         program_bytecodes.extend(
                             call_function(
-                                token_to_string(token_list[opening_brace_pos - 2]),
+                                function_name,
                                 parsed_params,
                                 line_number,
                                 True,
@@ -163,7 +176,7 @@ def parse_program(program_buffer: str) -> list:
                     else:
                         content_bytecodes.extend(
                             call_function(
-                                token_to_string(token_list[opening_brace_pos - 2]),
+                                function_name,
                                 parsed_params,
                                 line_number,
                                 False,

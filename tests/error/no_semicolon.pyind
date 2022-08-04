@@ -1,0 +1,3 @@
+fungsi utama() {
+    tampilkan("Test")
+}

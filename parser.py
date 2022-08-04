@@ -18,6 +18,7 @@ TOKENS = {
     ";": 505,
     " ": 506,
     ",": 507,
+    "$": 508,
     # EOF (End Of File)
     "\0": 999,
 }
@@ -95,6 +96,7 @@ def parse_program(program_buffer: str) -> list:
 
     token_list = []
     declared_functions = []
+    declared_identifiers = []
     parsed_params = []
 
     parsed_buffer = ""
@@ -155,7 +157,7 @@ def parse_program(program_buffer: str) -> list:
                 )
                 parsed_params = parse_parameters(token_list[opening_brace_pos:])
 
-                if token_list[opening_brace_pos - 2] == TOKENS["fungsi"]:
+                if token_list[opening_brace_pos - 3] == TOKENS["fungsi"]:
                     # Function definition
                     if search(program_buffer, pos + 1, line_number, "{") == -1:
                         error("Expecting '{' but have reached the End Of File")
@@ -186,6 +188,9 @@ def parse_program(program_buffer: str) -> list:
                                 False,
                             )
                         )
+
+                    if search(program_buffer, pos + 1, line_number, ";") == -1:
+                        error("Expecting ';' but have reached the End Of File")
 
             case '"':
                 # Start to parse string inside double quote backward

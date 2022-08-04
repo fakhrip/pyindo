@@ -1,7 +1,7 @@
 from os import (
     EX_SOFTWARE,  # Exit code that means an internal software error was detected.
 )
-from string import punctuation
+from string import punctuation, ascii_letters, digits
 from compiler import call_function, define_function_content, define_function_header
 
 
@@ -51,7 +51,7 @@ def error(statement, line_number=None) -> None:
     exit(EX_SOFTWARE)
 
 
-def search(program_buffer: str, pos: int, line_number: int, token_str: str) -> int:
+def search(program_buffer: str, pos: int, line_number: int, token_str: str) -> int or None:
     parsed_buffer = ""
 
     for cur_pos, char in enumerate(program_buffer[pos:]):
@@ -75,7 +75,19 @@ def search(program_buffer: str, pos: int, line_number: int, token_str: str) -> i
             parsed_buffer = ""
 
     # Token string could not be found, should error
-    return -1
+    error(f"Expecting '{token_str}' but have reached the End Of File")
+
+
+def check_legal_identifier(identifer: str, line_number: int) -> None:
+    is_legal = identifer[0] not in digits 
+
+    for char in identifer:
+        is_legal &= char in [*ascii_letters, *digits, "_"]
+
+    if not is_legal:
+        error(
+            f"Illegal identifier name: {identifer}", line_number
+        )
 
 
 def parse_parameters(token_list: list) -> list:
@@ -145,6 +157,7 @@ def parse_program(program_buffer: str) -> list:
                         )
 
                 if function_name != "":
+                    check_legal_identifier(function_name, line_number)
                     token_list.append(function_name)
 
                 token_list.append(TOKENS["("])
@@ -159,8 +172,7 @@ def parse_program(program_buffer: str) -> list:
 
                 if token_list[opening_brace_pos - 3] == TOKENS["fungsi"]:
                     # Function definition
-                    if search(program_buffer, pos + 1, line_number, "{") == -1:
-                        error("Expecting '{' but have reached the End Of File")
+                    search(program_buffer, pos + 1, line_number, "{")
                 else:
                     # Function call
                     cur_token = token_list[opening_brace_pos - 1]
@@ -189,8 +201,7 @@ def parse_program(program_buffer: str) -> list:
                             )
                         )
 
-                    if search(program_buffer, pos + 1, line_number, ";") == -1:
-                        error("Expecting ';' but have reached the End Of File")
+                    search(program_buffer, pos + 1, line_number, ";")
 
             case '"':
                 # Start to parse string inside double quote backward
@@ -261,8 +272,7 @@ def parse_program(program_buffer: str) -> list:
 
         if len(token_list) > 0:
             if token_list[-1] == TOKENS["fungsi"]:
-                if search(program_buffer, pos + 1, line_number, " ") == -1:
-                    error("Expecting ' ' but have reached the End Of File")
+                search(program_buffer, pos + 1, line_number, " ")
 
     token_list.append(TOKENS["\0"])
 

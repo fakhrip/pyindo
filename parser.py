@@ -17,6 +17,7 @@ TOKENS = {
     '"': 504,
     ";": 505,
     " ": 506,
+    ",": 507,
     # EOF (End Of File)
     "\0": 999,
 }
@@ -97,6 +98,7 @@ def parse_program(program_buffer: str) -> list:
     parsed_params = []
 
     parsed_buffer = ""
+    is_in_quote = False
     line_number = 1
 
     """
@@ -119,27 +121,30 @@ def parse_program(program_buffer: str) -> list:
         match char:
             case "(":
                 # Start to parse function name backward
+                function_name = parsed_buffer[:-1]
                 if token_list[-2] == TOKENS["fungsi"]:
                     # Function definition
-                    if parsed_buffer[:-1] == "utama":
+                    if function_name == "utama":
                         is_entrypoint_exist = True
 
-                    if parsed_buffer[:-1] in declared_functions:
+                    if function_name in declared_functions:
                         error(
-                            f"'{parsed_buffer[:-1]}' function is already declared before",
+                            f"'{function_name}' function is already declared before",
                             line_number,
                         )
 
-                    declared_functions.append(parsed_buffer[:-1])
+                    declared_functions.append(function_name)
                 else:
                     # Function call
-                    if parsed_buffer[:-1] in declared_functions:
+                    if function_name in declared_functions:
                         error(
                             f"'{parsed_buffer[:-1]}' function is not declared anywhere",
                             line_number,
                         )
 
-                token_list.append(parsed_buffer[:-1])
+                if function_name != "":
+                    token_list.append(function_name)
+
                 token_list.append(TOKENS["("])
                 parsed_buffer = ""
 
@@ -150,17 +155,16 @@ def parse_program(program_buffer: str) -> list:
                 )
                 parsed_params = parse_parameters(token_list[opening_brace_pos:])
 
-                if token_list[opening_brace_pos - 3] == TOKENS["fungsi"]:
+                if token_list[opening_brace_pos - 2] == TOKENS["fungsi"]:
                     # Function definition
                     if search(program_buffer, pos + 1, line_number, "{") == -1:
                         error("Expecting '{' but have reached the End Of File")
                 else:
                     # Function call
+                    cur_token = token_list[opening_brace_pos - 1]
                     function_name = (
-                        token_to_string(
-                            (cur_token := token_list[opening_brace_pos - 2])
-                        )
-                        if cur_token in TOKENS.keys()
+                        token_to_string(cur_token)
+                        if cur_token in TOKENS.values()
                         else cur_token
                     )
 
@@ -193,6 +197,10 @@ def parse_program(program_buffer: str) -> list:
                         # Closing double quote
                         token_list.append(parsed_buffer[:-1])
                         token_list.append(TOKENS['"'])
+                        is_in_quote = False
+                    else:
+                        # Opening double quote
+                        is_in_quote = True
 
                     parsed_buffer = ""
                     continue
@@ -236,7 +244,7 @@ def parse_program(program_buffer: str) -> list:
                 content_bytecodes = []
                 function_bytecodes = []
 
-        if parsed_buffer in TOKENS.keys():
+        if parsed_buffer in TOKENS.keys() and not is_in_quote:
             token_list.append(TOKENS[parsed_buffer])
             parsed_buffer = ""
 

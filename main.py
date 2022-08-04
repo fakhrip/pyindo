@@ -50,7 +50,8 @@ def parse_argument() -> tuple[str, dict]:
     # the file actually exist or not
     f_input = argv.pop(0)
     if not isfile(f_input):
-        help(EX_NOINPUT)
+        print(f"Could not open file: {f_input}")
+        exit(EX_NOINPUT)
 
     # Track which options are enabled
     # and what value is given to each of them

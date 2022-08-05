@@ -43,6 +43,7 @@ def call_function(
     match function_name:
         case "tampilkan":
             bytecodes = format_print(function_params, line_number, is_global_scope)
+            return bytecodes
 
     bytecodes.append(Instr("LOAD_NAME", function_name))
 

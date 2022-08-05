@@ -1,5 +1,4 @@
 from bytecode import Compare, Instr, Bytecode, Label
-import bytecode
 
 
 def format_print(string_args: list, line_number: int, is_global_scope: bool) -> list:
@@ -26,6 +25,8 @@ def format_print(string_args: list, line_number: int, is_global_scope: bool) -> 
             Instr("LOAD_CONST", ("end",)),
             Instr("CALL_FUNCTION_KW", 2),
             Instr("POP_TOP"),
+            Instr("LOAD_CONST", None),
+            Instr("RETURN_VALUE"),
         ]
     )
 
@@ -33,13 +34,33 @@ def format_print(string_args: list, line_number: int, is_global_scope: bool) -> 
 
 
 def call_function(
-    function_name: str, function_param: list, line_number: int, is_global_scope: bool
+    function_name: str, function_params: list, line_number: int, is_global_scope: bool
 ) -> list:
     bytecodes = []
 
     match function_name:
         case "tampilkan":
-            bytecodes = format_print(function_param, line_number, is_global_scope)
+            bytecodes = format_print(function_params, line_number, is_global_scope)
+
+    bytecodes.append(Instr("LOAD_NAME", function_name))
+
+    if len(function_params) > 0:
+        bytecodes.extend(
+            [
+                # TODO:
+                # Add function params bytecode to the function call
+                # if there are any
+            ]
+        )
+
+    bytecodes.extend(
+        [
+            Instr("CALL_FUNCTION", 0),
+            Instr("POP_TOP"),
+            Instr("LOAD_CONST", None),  # TODO: Add function return value
+            Instr("RETURN_VALUE"),
+        ]
+    )
 
     return bytecodes
 
@@ -66,16 +87,29 @@ def define_function_content(
             ]
         )
     else:
-        # Function header definition for other functions
-        # TODO: handle function header definition for other functions
-        print("TODO (handle function content definition for other functions)")
+        # Function content definition for other functions
+        compiled_bytecode = compile_bytecodes(function_bytecodes["content"])
+        bytecode_codechunk = compiled_bytecode.to_code()
+
+        bytecodes.extend(
+            [
+                *function_bytecodes["header"],
+                Instr("LOAD_CONST", bytecode_codechunk),
+                Instr("LOAD_CONST", function_name),
+                Instr(
+                    "MAKE_FUNCTION",
+                    4 if len(function_bytecodes["header"]) > 0 else 0,
+                ),
+                Instr("STORE_NAME", function_name),
+            ]
+        )
 
     return bytecodes
 
 
 def define_function_header(
     function_name: str,
-    function_param: list,
+    function_params: list,
     is_entrypoint_function: bool,
     line_number: int,
 ) -> list:
@@ -92,8 +126,16 @@ def define_function_header(
         )
     else:
         # Function header definition for other functions
-        # TODO: handle function header definition for other functions
-        print("TODO (handle function header definition for other functions)")
+        for param in function_params:
+            bytecodes.extend(
+                [
+                    Instr("LOAD_CONST", param["name"], lineno=line_number),
+                    Instr("LOAD_NAME", param["type"], lineno=line_number),
+                ]
+            )
+
+        if len(function_params) > 0:
+            bytecodes.append(Instr("BUILD_TUPLE", 2 * len(function_params)))
 
     return bytecodes
 

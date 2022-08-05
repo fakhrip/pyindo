@@ -27,8 +27,9 @@ TOKENS = {
 # Generate reserved keyword from tokens dict
 list_of_punctuation = [p for p in f"{punctuation} "]
 RESERVED_KEYWORD = [
-    keyword for keyword in TOKENS.keys() if keyword not in list_of_punctuation
-].extend(["utama"])
+    *[keyword for keyword in TOKENS.keys() if keyword not in list_of_punctuation],
+    "utama",
+]
 
 
 def token_to_string(token: int) -> str:
@@ -51,7 +52,9 @@ def error(statement, line_number=None) -> None:
     exit(EX_SOFTWARE)
 
 
-def search(program_buffer: str, pos: int, line_number: int, token_str: str) -> int or None:
+def search(
+    program_buffer: str, pos: int, line_number: int, token_str: str
+) -> int or None:
     parsed_buffer = ""
 
     for cur_pos, char in enumerate(program_buffer[pos:]):
@@ -78,16 +81,21 @@ def search(program_buffer: str, pos: int, line_number: int, token_str: str) -> i
     error(f"Expecting '{token_str}' but have reached the End Of File")
 
 
-def check_legal_identifier(identifer: str, line_number: int) -> None:
-    is_legal = identifer[0] not in digits 
+def check_legal_identifier(
+    identfier: str, line_number: int, is_function_identifier: bool
+) -> None:
+    global RESERVED_KEYWORD
 
-    for char in identifer:
+    is_legal = identfier[0] not in digits
+
+    for char in identfier:
         is_legal &= char in [*ascii_letters, *digits, "_"]
 
+    if not is_function_identifier:
+        is_legal &= identfier not in RESERVED_KEYWORD
+
     if not is_legal:
-        error(
-            f"Illegal identifier name: {identifer}", line_number
-        )
+        error(f"Illegal identifier name: {identfier}", line_number)
 
 
 def parse_parameters(token_list: list) -> list:
@@ -129,7 +137,7 @@ def parse_program(program_buffer: str) -> list:
     header_bytecodes = []
     content_bytecodes = []
 
-    for pos, char in enumerate(program_buffer[:-2]):
+    for pos, char in enumerate(program_buffer[:-1]):
         parsed_buffer += char
 
         match char:
@@ -150,14 +158,14 @@ def parse_program(program_buffer: str) -> list:
                     declared_functions.append(function_name)
                 else:
                     # Function call
-                    if function_name in declared_functions:
+                    if function_name != "" and function_name not in declared_functions:
                         error(
                             f"'{parsed_buffer[:-1]}' function is not declared anywhere",
                             line_number,
                         )
 
                 if function_name != "":
-                    check_legal_identifier(function_name, line_number)
+                    check_legal_identifier(function_name, line_number, True)
                     token_list.append(function_name)
 
                 token_list.append(TOKENS["("])
@@ -262,12 +270,12 @@ def parse_program(program_buffer: str) -> list:
                 content_bytecodes = []
                 function_bytecodes = []
 
+            case "\n":
+                line_number += 1
+                parsed_buffer = ""
+
         if parsed_buffer in TOKENS.keys() and not is_in_quote:
             token_list.append(TOKENS[parsed_buffer])
-            parsed_buffer = ""
-
-        if char == "\n":
-            line_number += 1
             parsed_buffer = ""
 
         if len(token_list) > 0:

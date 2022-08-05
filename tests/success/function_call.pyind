@@ -1,0 +1,7 @@
+fungsi test() {
+    tampilkan("Hello semuanya!");
+}
+
+fungsi utama() {
+    test();
+}

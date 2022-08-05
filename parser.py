@@ -2,6 +2,8 @@ from os import (
     EX_SOFTWARE,  # Exit code that means an internal software error was detected.
 )
 from string import punctuation, ascii_letters, digits
+from types import CodeType
+from typing import Tuple
 from compiler import call_function, define_function_content, define_function_header
 
 
@@ -111,7 +113,7 @@ def parse_parameters(token_list: list) -> list:
     return parameters
 
 
-def parse_program(program_buffer: str) -> list:
+def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
     is_entrypoint_exist = False
 
     token_list = []
@@ -136,6 +138,8 @@ def parse_program(program_buffer: str) -> list:
     function_bytecodes = []
     header_bytecodes = []
     content_bytecodes = []
+
+    program_codechunks = []
 
     for pos, char in enumerate(program_buffer[:-1]):
         parsed_buffer += char
@@ -251,18 +255,20 @@ def parse_program(program_buffer: str) -> list:
                 if len(declared_functions) == 0:
                     error("Unexpected '}'", line_number)
 
-                function_bytecodes.extend(
-                    define_function_content(
-                        declared_functions[-1],
-                        {
-                            "header": header_bytecodes,
-                            "content": content_bytecodes,
-                        },
-                        declared_functions[-1] == "utama",
-                        line_number,
-                    )
+                bytecodes, codechunk = define_function_content(
+                    declared_functions[-1],
+                    {
+                        "header": header_bytecodes,
+                        "content": content_bytecodes,
+                    },
+                    declared_functions[-1] == "utama",
+                    line_number,
                 )
 
+                if codechunk:
+                    program_codechunks.append(codechunk)
+
+                function_bytecodes.extend(bytecodes)
                 program_bytecodes.extend(function_bytecodes)
 
                 scope_level = 0
@@ -289,4 +295,4 @@ def parse_program(program_buffer: str) -> list:
             "Entrypoint is not exist, you should create it first using `utama()` function"
         )
 
-    return program_bytecodes
+    return (program_bytecodes, program_codechunks)

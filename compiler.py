@@ -1,3 +1,5 @@
+from types import CodeType
+from typing import Tuple
 from bytecode import Compare, Instr, Bytecode, Label
 
 
@@ -70,8 +72,9 @@ def define_function_content(
     function_bytecodes: dict,
     is_entrypoint_function: bool,
     line_number: int,
-) -> list:
+) -> Tuple[list, CodeType]:
     bytecodes = []
+    bytecode_codechunk = None
 
     if is_entrypoint_function:
         # Function content definition for entrypoint
@@ -104,7 +107,7 @@ def define_function_content(
             ]
         )
 
-    return bytecodes
+    return (bytecodes, bytecode_codechunk)
 
 
 def define_function_header(

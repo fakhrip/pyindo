@@ -6,7 +6,7 @@ from os.path import isfile
 from sys import argv, exit
 from compiler import compile_bytecodes
 from parser import parse_program
-from bytecode import dump_bytecode
+from bytecode import Bytecode, dump_bytecode
 from contextlib import redirect_stdout
 from io import StringIO
 
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     with open(f_input, "r") as f:
         f_buffer = f.read() + "\0"
 
-        bytecodes = parse_program(f_buffer)
+        bytecodes, codechunks = parse_program(f_buffer)
         compiled_bytecode = compile_bytecodes(bytecodes)
         exec(compiled_bytecode.to_code())
 
@@ -89,4 +89,13 @@ if __name__ == "__main__":
                 dump_bytecode(compiled_bytecode, lineno=True)
 
             disassembly = f.getvalue()
+
+            for chunk in codechunks:
+                f = StringIO()
+                with redirect_stdout(f):
+                    dump_bytecode(Bytecode.from_code(chunk), lineno=True)
+
+                disassembly += f"Disassembly of {chunk}:\n" 
+                disassembly += f.getvalue()
+
             open(f_input.replace(".pyind", ".pyc"), "w").write(disassembly)

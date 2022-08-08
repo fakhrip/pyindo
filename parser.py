@@ -4,7 +4,7 @@ from os import (
 from string import punctuation, ascii_letters, digits
 from types import CodeType
 from enum import Enum
-from typing import NoReturn, Tuple
+from typing import List, NoReturn, Tuple
 from compiler import call_function, define_function_content, define_function_header
 
 
@@ -137,54 +137,22 @@ def search(
     error(f"Expecting '{token_class.value}' but have reached the End Of File")
 
 
-def get_first_token_before(
-    program_buffer: str, pos: int, other_than: list = [Punctuation.SPACE]
-) -> int or str or None:
-    parsed_buffer = ""
-    token = -1
+def get_first_token(
+    token_list: List[int], is_forward: bool, from_pos: int = None, other_than: list = [Punctuation.SPACE]
+) -> int or None:
+    token = None
 
-    for char in enumerate(program_buffer[:pos][::-1]):
-        parsed_buffer += char
+    from_pos = from_pos if from_pos else len(token_list)
+    token_list = token_list[from_pos:] if is_forward else token_list[:from_pos][::-1]
+    for token in token_list:
+        is_in_whitelist = False
+        for token_whitelist in other_than:
+            is_in_whitelist |= token == TOKENS[token_whitelist]
 
-        if parsed_buffer in TOKEN_KEYS:
-            token = string_to_token(parsed_buffer)
+        if not is_in_whitelist:
+            return token
 
-            for token_whitelist in other_than:
-                if token != TOKENS[token_whitelist]:
-                    return token
-
-        if char == "\n":
-            parsed_buffer = ""
-
-        if char == " " and len(parsed_buffer) > 0:
-            parsed_buffer = ""
-
-    return None
-
-
-def get_first_token_after(
-    program_buffer: str, pos: int, other_than: list = [Punctuation.SPACE]
-) -> int or str or None:
-    parsed_buffer = ""
-    token = -1
-
-    for char in enumerate(program_buffer[pos:]):
-        parsed_buffer += char
-
-        if parsed_buffer in TOKEN_KEYS:
-            token = string_to_token(parsed_buffer)
-
-            for token_whitelist in other_than:
-                if token != TOKENS[token_whitelist]:
-                    return token
-
-        if char == "\n":
-            parsed_buffer = ""
-
-        if char == " " and len(parsed_buffer) > 0:
-            parsed_buffer = ""
-
-    return None
+    return token
 
 
 def check_legal_identifier(
@@ -256,8 +224,9 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
         match char:
             case Bracket.OPENING_ROUND_BRACKET.value:
                 # Start to parse function name backward
-                function_name = parsed_buffer[:-1]
-                if token_list[-2] == TOKENS[Keyword.FUNCTION]:
+                function_name = parsed_buffer[:-1].strip()
+                last_token = get_first_token(token_list, False)
+                if last_token and last_token == TOKENS[Keyword.FUNCTION]:
                     # Function definition
                     if function_name == "utama":
                         is_entrypoint_exist = True
@@ -300,7 +269,8 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 )
                 parsed_params = parse_parameters(token_list[opening_bracket_pos:])
 
-                if token_list[opening_bracket_pos - 3] == TOKENS[Keyword.FUNCTION]:
+                second_last_token = get_first_token(token_list, False, opening_bracket_pos - 1)
+                if second_last_token == TOKENS[Keyword.FUNCTION]:
                     # Function definition
                     search(
                         program_buffer,
@@ -310,11 +280,11 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     )
                 else:
                     # Function call
-                    cur_token = token_list[opening_bracket_pos - 1]
+                    last_token = get_first_token(token_list, False, opening_bracket_pos)
                     function_name = (
-                        token_to_string(cur_token)
-                        if cur_token in TOKENS.values()
-                        else cur_token
+                        token_to_string(last_token)
+                        if last_token in TOKENS.values()
+                        else last_token
                     )
 
                     if len(context_stack) == 0:

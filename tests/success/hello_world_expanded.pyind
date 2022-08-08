@@ -1,0 +1,11 @@
+fungsi        
+
+
+              utama          ()          {
+
+
+
+                            tampilkan      (      "Halo Dunia!!!"   )             ;
+
+
+}

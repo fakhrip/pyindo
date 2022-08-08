@@ -3,33 +3,74 @@ from os import (
 )
 from string import punctuation, ascii_letters, digits
 from types import CodeType
-from typing import Tuple
+from enum import Enum
+from typing import NoReturn, Tuple
 from compiler import call_function, define_function_content, define_function_header
 
 
+class Context(Enum):
+    ROUND_BRACKET = "()"
+    CURLY_BRACKET = "{}"
+    ANGLE_BRACKET = "<>"
+    SQUARE_BRACKET = "[]"
+    DOUBLE_QUOTE = '""'
+    SINGLE_QUOTE = "''"
+
+
+class Bracket(Enum):
+    OPENING_CURLY_BRACKET = "{"
+    CLOSING_CURLY_BRACKET = "}"
+    OPENING_ROUND_BRACKET = "("
+    CLOSING_ROUND_BRACKET = ")"
+    OPENING_ANGLE_BRACKET = "<"
+    CLOSING_ANGLE_BRACKET = ">"
+    OPENING_SQUARE_BRACKET = "["
+    CLOSING_SQUARE_BRACKET = "]"
+
+
+class Punctuation(Enum):
+    DOUBLEQUOTE = '"'
+    SINGLEQUOTE = "'"
+    SEMICOLON = ";"
+    SPACE = " "
+    COMMA = ","
+    DOLLAR = "$"
+    EOF = "\0"
+
+
+class Keyword(Enum):
+    FUNCTION = "fungsi"
+    PRINT = "tampilkan"
+
+
 TOKENS = {
-    # Reserved Keywords
-    "fungsi": 100,
-    "tampilkan": 101,
-    # Special Punctuations
-    "(": 500,
-    ")": 501,
-    "{": 502,
-    "}": 503,
-    '"': 504,
-    ";": 505,
-    " ": 506,
-    ",": 507,
-    "$": 508,
-    # EOF (End Of File)
-    "\0": 999,
+    Keyword.FUNCTION: 100,
+    Keyword.PRINT: 101,
+    Bracket.OPENING_ROUND_BRACKET: 500,
+    Bracket.CLOSING_ROUND_BRACKET: 501,
+    Bracket.OPENING_CURLY_BRACKET: 502,
+    Bracket.CLOSING_CURLY_BRACKET: 503,
+    Punctuation.DOUBLEQUOTE: 504,
+    Punctuation.SEMICOLON: 505,
+    Punctuation.SPACE: 506,
+    Punctuation.COMMA: 507,
+    Punctuation.DOLLAR: 508,
+    Punctuation.SINGLEQUOTE: 509,
+    Punctuation.EOF: 999,
 }
 
+TOKEN_KEYS = [
+    *[e.value for e in Bracket],
+    *[e.value for e in Punctuation],
+    *[e.value for e in Keyword],
+]
+
+TOKEN_VALUES = [*[e for e in Bracket], *[e for e in Punctuation], *[e for e in Keyword]]
 
 # Generate reserved keyword from tokens dict
 list_of_punctuation = [p for p in f"{punctuation} "]
 RESERVED_KEYWORD = [
-    *[keyword for keyword in TOKENS.keys() if keyword not in list_of_punctuation],
+    *[keyword for keyword in TOKEN_KEYS if keyword not in list_of_punctuation],
     "utama",
 ]
 
@@ -40,10 +81,18 @@ def token_to_string(token: int) -> str:
     its corresponding token string
     """
 
-    return list(TOKENS.keys())[list(TOKENS.values()).index(token)]
+    return list(TOKENS.keys())[list(TOKENS.values()).index(token)].value
 
 
-def error(statement, line_number=None) -> None:
+def string_to_token(string: str) -> int or str:
+    return (
+        TOKENS[TOKEN_VALUES[TOKEN_KEYS.index(string)]]
+        if string in TOKEN_KEYS
+        else string
+    )
+
+
+def error(statement, line_number=None) -> NoReturn:
     """
     Show error statement if there are any, including
     the line number in which the error happened
@@ -55,23 +104,28 @@ def error(statement, line_number=None) -> None:
 
 
 def search(
-    program_buffer: str, pos: int, line_number: int, token_str: str
-) -> int or None:
+    program_buffer: str,
+    pos: int,
+    line_number: int,
+    token_class: Bracket or Punctuation or Keyword,
+) -> Tuple[int, int] or NoReturn:
     parsed_buffer = ""
 
     for cur_pos, char in enumerate(program_buffer[pos:]):
         parsed_buffer += char
 
-        if parsed_buffer in TOKENS.keys():
+        if parsed_buffer in TOKEN_KEYS:
+            token = string_to_token(parsed_buffer)
             if (
-                TOKENS[parsed_buffer] != TOKENS[" "] or TOKENS[token_str] == TOKENS[" "]
-            ) and TOKENS[parsed_buffer] != TOKENS[token_str]:
+                token != TOKENS[Punctuation.SPACE]
+                or TOKENS[token_class] == TOKENS[Punctuation.SPACE]
+            ) and token != TOKENS[token_class]:
                 error(
-                    f"Expecting '{token_str}' but got '{token_to_string(TOKENS[parsed_buffer])}'",
+                    f"Expecting '{token_class.value}' but got '{token_to_string(token)}'",
                     line_number,
                 )
-            elif TOKENS[parsed_buffer] == TOKENS[token_str]:
-                return pos + cur_pos + 1
+            elif token == TOKENS[token_class]:
+                return (pos + cur_pos + 1, line_number)
 
             parsed_buffer = ""
 
@@ -80,12 +134,62 @@ def search(
             parsed_buffer = ""
 
     # Token string could not be found, should error
-    error(f"Expecting '{token_str}' but have reached the End Of File")
+    error(f"Expecting '{token_class.value}' but have reached the End Of File")
+
+
+def get_first_token_before(
+    program_buffer: str, pos: int, other_than: list = [Punctuation.SPACE]
+) -> int or str or None:
+    parsed_buffer = ""
+    token = -1
+
+    for char in enumerate(program_buffer[:pos][::-1]):
+        parsed_buffer += char
+
+        if parsed_buffer in TOKEN_KEYS:
+            token = string_to_token(parsed_buffer)
+
+            for token_whitelist in other_than:
+                if token != TOKENS[token_whitelist]:
+                    return token
+
+        if char == "\n":
+            parsed_buffer = ""
+
+        if char == " " and len(parsed_buffer) > 0:
+            parsed_buffer = ""
+
+    return None
+
+
+def get_first_token_after(
+    program_buffer: str, pos: int, other_than: list = [Punctuation.SPACE]
+) -> int or str or None:
+    parsed_buffer = ""
+    token = -1
+
+    for char in enumerate(program_buffer[pos:]):
+        parsed_buffer += char
+
+        if parsed_buffer in TOKEN_KEYS:
+            token = string_to_token(parsed_buffer)
+
+            for token_whitelist in other_than:
+                if token != TOKENS[token_whitelist]:
+                    return token
+
+        if char == "\n":
+            parsed_buffer = ""
+
+        if char == " " and len(parsed_buffer) > 0:
+            parsed_buffer = ""
+
+    return None
 
 
 def check_legal_identifier(
     identfier: str, line_number: int, is_function_identifier: bool
-) -> None:
+) -> NoReturn:
     global RESERVED_KEYWORD
 
     is_legal = identfier[0] not in digits
@@ -105,8 +209,22 @@ def parse_parameters(token_list: list) -> list:
 
     for pos, token in enumerate(token_list):
         if (
-            token == TOKENS['"']
-            and len([x for x in token_list[pos:] if x == TOKENS['"']]) % 2 != 0
+            token == TOKENS[Punctuation.DOUBLEQUOTE]
+            and len(
+                [x for x in token_list[pos:] if x == TOKENS[Punctuation.DOUBLEQUOTE]]
+            )
+            % 2
+            != 0
+        ):
+            parameters.append(token_list[pos - 1])
+
+        if (
+            token == TOKENS[Punctuation.SINGLEQUOTE]
+            and len(
+                [x for x in token_list[pos:] if x == TOKENS[Punctuation.SINGLEQUOTE]]
+            )
+            % 2
+            != 0
         ):
             parameters.append(token_list[pos - 1])
 
@@ -118,21 +236,12 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
 
     token_list = []
     declared_functions = []
-    declared_identifiers = []
     parsed_params = []
 
     parsed_buffer = ""
-    is_in_quote = False
     line_number = 1
 
-    """
-    {
-        0: Global Scope
-        1: Local Function Scope
-        ...: More Local Scope (nested function)
-    } 
-    """
-    scope_level = 0
+    context_stack = []
 
     program_bytecodes = []
     function_bytecodes = []
@@ -145,10 +254,10 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
         parsed_buffer += char
 
         match char:
-            case "(":
+            case Bracket.OPENING_ROUND_BRACKET.value:
                 # Start to parse function name backward
                 function_name = parsed_buffer[:-1]
-                if token_list[-2] == TOKENS["fungsi"]:
+                if token_list[-2] == TOKENS[Keyword.FUNCTION]:
                     # Function definition
                     if function_name == "utama":
                         is_entrypoint_exist = True
@@ -172,29 +281,43 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     check_legal_identifier(function_name, line_number, True)
                     token_list.append(function_name)
 
-                token_list.append(TOKENS["("])
+                token_list.append(TOKENS[Bracket.OPENING_ROUND_BRACKET])
+                context_stack.append(Context.ROUND_BRACKET)
                 parsed_buffer = ""
 
-            case ")":
-                # Start to parse function parameter backward
-                opening_brace_pos = (
-                    len(token_list) - 1 - token_list[::-1].index(TOKENS["("])
-                )
-                parsed_params = parse_parameters(token_list[opening_brace_pos:])
+            case Bracket.CLOSING_ROUND_BRACKET.value:
+                if (
+                    len(context_stack) == 0
+                    or Context.ROUND_BRACKET not in context_stack
+                ):
+                    error("Unexpected ')'", line_number)
 
-                if token_list[opening_brace_pos - 3] == TOKENS["fungsi"]:
+                # Start to parse function parameter backward
+                opening_bracket_pos = (
+                    len(token_list)
+                    - 1
+                    - token_list[::-1].index(TOKENS[Bracket.OPENING_ROUND_BRACKET])
+                )
+                parsed_params = parse_parameters(token_list[opening_bracket_pos:])
+
+                if token_list[opening_bracket_pos - 3] == TOKENS[Keyword.FUNCTION]:
                     # Function definition
-                    search(program_buffer, pos + 1, line_number, "{")
+                    search(
+                        program_buffer,
+                        pos + 1,
+                        line_number,
+                        Bracket.OPENING_CURLY_BRACKET,
+                    )
                 else:
                     # Function call
-                    cur_token = token_list[opening_brace_pos - 1]
+                    cur_token = token_list[opening_bracket_pos - 1]
                     function_name = (
                         token_to_string(cur_token)
                         if cur_token in TOKENS.values()
                         else cur_token
                     )
 
-                    if scope_level == 0:
+                    if len(context_stack) == 0:
                         program_bytecodes.extend(
                             call_function(
                                 function_name,
@@ -213,29 +336,48 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                             )
                         )
 
-                    search(program_buffer, pos + 1, line_number, ";")
+                    search(program_buffer, pos + 1, line_number, Punctuation.SEMICOLON)
 
-            case '"':
-                # Start to parse string inside double quote backward
-                if TOKENS['"'] in token_list:
+                context_stack.pop()
+
+            case Punctuation.DOUBLEQUOTE.value | Punctuation.SINGLEQUOTE.value:
+                # Start to parse string inside double || single quote backward
+                cur_quote = (
+                    Punctuation.DOUBLEQUOTE
+                    if char == Punctuation.DOUBLEQUOTE.value
+                    else Punctuation.SINGLEQUOTE
+                )
+                if TOKENS[cur_quote] in token_list:
                     if (
-                        len([token for token in token_list if token == TOKENS['"']]) % 2
+                        len(
+                            [
+                                token
+                                for token in token_list
+                                if token == TOKENS[cur_quote]
+                            ]
+                        )
+                        % 2
                         != 0
                     ):
-                        # Closing double quote
+                        # Closing double || single quote
                         token_list.append(parsed_buffer[:-1])
-                        token_list.append(TOKENS['"'])
-                        is_in_quote = False
+                        token_list.append(TOKENS[cur_quote])
+                        context_stack.pop()
 
-                    else:
-                        # Opening double quote
-                        token_list.append(TOKENS[parsed_buffer])
-                        is_in_quote = True
+                        parsed_buffer = ""
+                        continue
 
-                    parsed_buffer = ""
-                    continue
+                # Opening double || single quote
+                token_list.append(TOKENS[cur_quote])
+                context_stack.append(
+                    Context.DOUBLE_QUOTE
+                    if cur_quote == Punctuation.DOUBLEQUOTE
+                    else Context.SINGLE_QUOTE
+                )
 
-            case "{":
+                parsed_buffer = ""
+
+            case Bracket.OPENING_CURLY_BRACKET.value:
                 if len(declared_functions) == 0:
                     error("Unexpected '{'", line_number)
 
@@ -248,11 +390,17 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     )
                 )
 
-                scope_level = 1
+                context_stack.append(Context.CURLY_BRACKET)
                 parsed_params = []
 
-            case "}":
+            case Bracket.CLOSING_CURLY_BRACKET.value:
                 if len(declared_functions) == 0:
+                    error("Unexpected '}'", line_number)
+
+                if (
+                    len(context_stack) == 0
+                    or Context.CURLY_BRACKET not in context_stack
+                ):
                     error("Unexpected '}'", line_number)
 
                 bytecodes, codechunk = define_function_content(
@@ -271,7 +419,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 function_bytecodes.extend(bytecodes)
                 program_bytecodes.extend(function_bytecodes)
 
-                scope_level = 0
+                context_stack.pop()
                 header_bytecodes = []
                 content_bytecodes = []
                 function_bytecodes = []
@@ -280,15 +428,19 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 line_number += 1
                 parsed_buffer = ""
 
-        if parsed_buffer in TOKENS.keys() and not is_in_quote:
-            token_list.append(TOKENS[parsed_buffer])
+        if (
+            parsed_buffer in TOKEN_KEYS
+            and Context.DOUBLE_QUOTE not in context_stack
+            and Context.SINGLE_QUOTE not in context_stack
+        ):
+            token_list.append(string_to_token(parsed_buffer))
             parsed_buffer = ""
 
         if len(token_list) > 0:
-            if token_list[-1] == TOKENS["fungsi"]:
-                search(program_buffer, pos + 1, line_number, " ")
+            if token_list[-1] == TOKENS[Keyword.FUNCTION]:
+                search(program_buffer, pos + 1, line_number, Punctuation.SPACE)
 
-    token_list.append(TOKENS["\0"])
+    token_list.append(TOKENS[Punctuation.EOF])
 
     if not is_entrypoint_exist:
         error(

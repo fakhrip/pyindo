@@ -440,6 +440,10 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
             if token_list[-1] == TOKENS[Keyword.FUNCTION]:
                 search(program_buffer, pos + 1, line_number, Punctuation.SPACE)
 
+    if len(context_stack) > 0:
+        error(f"Expecting '{context_stack[-1].value[-1]}' but have reached the End Of File", line_number)
+
+
     token_list.append(TOKENS[Punctuation.EOF])
 
     if not is_entrypoint_exist:

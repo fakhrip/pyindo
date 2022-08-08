@@ -1,0 +1,11 @@
+fungsi utama() {
+    jika (1 adalah 1) {
+        tampilkan("satu adalah satu");
+    } 
+
+    jika (1 adalah 2) {
+        tampilkan("satu adalah dua");
+    } selainnya {
+        tampilkan("satu bukan dua");
+    }
+}

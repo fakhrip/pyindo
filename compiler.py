@@ -92,21 +92,33 @@ def define_function_content(
         )
     else:
         # Function content definition for other functions
-        compiled_bytecode = compile_bytecodes(function_bytecodes["content"])
-        bytecode_codechunk = compiled_bytecode.to_code()
+        if function_name:
+            # Not an anonymous function so need to compile the function and
+            # store its identifier in the bytecode
+            compiled_bytecode = compile_bytecodes(function_bytecodes["content"])
+            bytecode_codechunk = compiled_bytecode.to_code()
 
-        bytecodes.extend(
-            [
-                *function_bytecodes["header"],
-                Instr("LOAD_CONST", bytecode_codechunk),
-                Instr("LOAD_CONST", function_name),
-                Instr(
-                    "MAKE_FUNCTION",
-                    4 if len(function_bytecodes["header"]) > 0 else 0,
-                ),
-                Instr("STORE_NAME", function_name),
-            ]
-        )
+            bytecodes.extend(
+                [
+                    *function_bytecodes["header"],
+                    Instr("LOAD_CONST", bytecode_codechunk),
+                    Instr("LOAD_CONST", function_name),
+                    Instr(
+                        "MAKE_FUNCTION",
+                        4 if len(function_bytecodes["header"]) > 0 else 0,
+                    ),
+                    Instr("STORE_NAME", function_name),
+                ]
+            )
+        else:
+            # This is an anonymous function which means that we dont have to
+            # compile the function and store its identifier in the bytecode
+            bytecodes.extend(
+                [
+                    *function_bytecodes["header"],
+                    *function_bytecodes["content"],
+                ]
+            )
 
     return (bytecodes, bytecode_codechunk)
 

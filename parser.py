@@ -211,7 +211,7 @@ class FunctionBytecode:
     def set_function_params(self, parameters: list) -> None:
         self._params = parameters
 
-    def set_header_bytecodes(self, line_number: int, function_name: str = None) -> None:
+    def set_header_bytecodes(self, line_number: int, function_name: str) -> None:
         self._header = define_function_header(
             function_name,
             self._params,
@@ -462,7 +462,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                         else last_token
                     )
 
-                    if Context.CURLY_BRACKET not in context_stack:
+                    if len(bytecode_stack) == 0:
                         program_bytecodes.extend(
                             call_function(
                                 function_name,
@@ -531,9 +531,8 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     or Context.SINGLE_QUOTE in context_stack
                 ):
                     if program_buffer[pos - 1] == Punctuation.DOLLAR.value:
-                        print(
-                            "TODO: Implement anonymous function definition for block of codes inside curly braces inside quotes"
-                        )
+                        function_bytecode = FunctionBytecode()
+                        bytecode_stack.append(function_bytecode)
                 else:
                     function_bytecode = FunctionBytecode()
                     function_bytecode.set_function_params(parsed_params)
@@ -553,14 +552,15 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 ):
                     error("Unexpected '}'", line_number)
 
+                bytecodes = None
+
                 if (
                     Context.DOUBLE_QUOTE in context_stack
                     or Context.SINGLE_QUOTE in context_stack
                 ):
                     if context_stack[-1] == Context.CURLY_BRACKET:
-                        print(
-                            "TODO: Implement anonymous function inside curly braces inside quotes"
-                        )
+                        bytecode_stack[-1].create_function_bytecodes(line_number)
+                        (bytecodes, _) = bytecode_stack.pop().get_function_bytecodes()
                 else:
                     bytecode_stack[-1].create_function_bytecodes(
                         line_number, declared_functions[-1]
@@ -574,7 +574,10 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     if function_codechunk:
                         program_codechunks.append(function_codechunk)
 
+                if len(bytecode_stack) == 0:
                     program_bytecodes.extend(bytecodes)
+                else:
+                    bytecode_stack[-1].add_content_bytecodes(bytecodes)
 
                 context_stack.pop()
 

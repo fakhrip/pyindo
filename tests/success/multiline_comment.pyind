@@ -1,0 +1,7 @@
+fungsi utama() {
+    /*
+        Menampilkan "Halo halo halo" dengan menggunakan
+        fungsi tampilkan() dengan parameter "Halo halo halo"
+    */
+    tampilkan("Halo halo halo");
+}

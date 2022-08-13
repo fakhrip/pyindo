@@ -4,8 +4,8 @@ fungsi utama() {
     } 
 
     jika (1 adalah 2) {
-        tampilkan("satu adalah dua");
+        tampilkan("\nsatu adalah dua");
     } selainnya {
-        tampilkan("satu bukan dua");
+        tampilkan("\nsatu bukan dua");
     }
 }

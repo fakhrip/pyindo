@@ -15,7 +15,6 @@ class Context(Enum):
     SQUARE_BRACKET = "[]"
     DOUBLE_QUOTE = '""'
     SINGLE_QUOTE = "''"
-    MULTILINE_COMMENT = "/**/"
 
 
 class Bracket(Enum):
@@ -728,7 +727,19 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
 
             if token_list[-1] == TOKENS[Punctuation.SINGLELINE_COMMENT]:
                 # Jump to next line if single line comment is found
-                pos += program_buffer[pos:].index("\n")
+                if "\n" in program_buffer[pos:]:
+                    pos += program_buffer[pos:].index("\n")
+
+            if token_list[-1] == TOKENS[Punctuation.OPENING_MULTILINE_COMMENT]:
+                # Jump to closing of multiline comment if any
+                if Punctuation.CLOSING_MULTILINE_COMMENT.value in program_buffer[pos:]:
+                    pos += program_buffer[pos:].index(
+                        Punctuation.CLOSING_MULTILINE_COMMENT.value
+                    )
+                    token_list.append(Punctuation.CLOSING_MULTILINE_COMMENT)
+                else:
+                    # End the parsing process directly if no closing multiline comment found
+                    break
 
         pos += 1
 

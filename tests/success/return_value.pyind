@@ -1,4 +1,4 @@
 fungsi utama() {
     tampilkan("halo dunia!");
-    return 1337;
+    hasilkan 1337;
 }

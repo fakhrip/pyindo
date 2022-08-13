@@ -15,6 +15,7 @@ class Context(Enum):
     SQUARE_BRACKET = "[]"
     DOUBLE_QUOTE = '""'
     SINGLE_QUOTE = "''"
+    MULTILINE_COMMENT = "/**/"
 
 
 class Bracket(Enum):
@@ -435,7 +436,9 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
     parsed_buffer = ""
     line_number = 1
 
-    for pos, char in enumerate(program_buffer[:-1]):
+    pos = 0
+    while program_buffer[pos] != Punctuation.EOF.value:
+        char = program_buffer[pos]
         parsed_buffer += char
 
         match char:
@@ -567,6 +570,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                         context_stack.pop()
 
                         parsed_buffer = ""
+                        pos += 1
                         continue
 
                 # Opening double || single quote
@@ -663,7 +667,13 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     should_parse = False
 
             if should_parse:
-                token_list.append(string_to_token(parsed_buffer))
+                if isinstance(
+                    token := string_to_token(program_buffer[pos : pos + 2]), int
+                ):
+                    token_list.append(token)
+                    pos += 1
+                else:
+                    token_list.append(string_to_token(parsed_buffer))
                 parsed_buffer = ""
         else:
             if (
@@ -696,18 +706,31 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                                     line_number,
                                 )
 
-                parsed_buffer = parsed_buffer.replace(clean_string, "")
-                for char in parsed_buffer:
-                    if char != "\n":
-                        token_list.append(string_to_token(char))
-
                 parsed_buffer = ""
                 if char == "\n":
                     line_number += 1
+                else:
+                    # Revert back the parsing process after the indentifier
+                    # or literal values have been parsed
+                    pos -= len(parsed_buffer.replace(clean_string, ""))
+                    continue
 
         if len(token_list) > 0:
-            if token_list[-1] == TOKENS[Keyword.FUNCTION]:
+            if token_list[-1] in [
+                TOKENS[Keyword.FUNCTION],
+                TOKENS[Keyword.THEN],
+                TOKENS[Keyword.RETURN],
+                TOKENS[Keyword.VARIABLE],
+                TOKENS[Keyword.CONSTANT],
+            ]:
+                # Space have to exist after all these checked tokens
                 search(program_buffer, pos + 1, line_number, Punctuation.SPACE)
+
+            if token_list[-1] == TOKENS[Punctuation.SINGLELINE_COMMENT]:
+                # Jump to next line if single line comment is found
+                pos += program_buffer[pos:].index("\n")
+
+        pos += 1
 
     if len(context_stack) > 0:
         error(

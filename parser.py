@@ -337,9 +337,26 @@ def check_legal_identifier(identfier: str, line_number: int) -> None or NoReturn
         error(f"Illegal identifier name: {identfier}", line_number)
 
 
-def parse_parameters(token_list: list) -> list:
-    parameters = []
+def parse_format_string(strings: list) -> list:
+    format_strings = []
 
+    for string in strings:
+        formatted_string = []
+
+        while "${" in string:
+            starting_point = string.index("${")
+            ending_point = string.index("}")
+
+            formatted_string.append(string[:starting_point])
+            string = string[ending_point + 1 :]
+
+        format_strings.append(formatted_string)
+
+    return format_strings
+
+
+def parse_parameters(token_list: list, anonymous_functions: list) -> list:
+    parameters = []
     for pos, token in enumerate(token_list):
         if (
             token == TOKENS[Punctuation.DOUBLEQUOTE]
@@ -361,7 +378,17 @@ def parse_parameters(token_list: list) -> list:
         ):
             parameters.append(token_list[pos - 1])
 
-    return parameters
+    final_parameters = []
+    for param in parameters:
+        if isinstance(param, str) and len(anonymous_functions) > 0:
+            for string in parse_format_string([param])[0]:
+                final_parameters.append(string)
+                final_parameters.append(anonymous_functions.pop())
+            continue
+
+        final_parameters.append(param)
+
+    return final_parameters
 
 
 def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
@@ -373,6 +400,8 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
 
     context_stack: List[Context] = []
     bytecode_stack: List[FunctionBytecode] = []
+
+    anonymous_functions = []
 
     program_bytecodes = []
     program_codechunks = []
@@ -437,7 +466,9 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     - 1
                     - token_list[::-1].index(TOKENS[Bracket.OPENING_ROUND_BRACKET])
                 )
-                parsed_params = parse_parameters(token_list[opening_bracket_pos:])
+                parsed_params = parse_parameters(
+                    token_list[opening_bracket_pos:], anonymous_functions
+                )
 
                 second_last_token = get_first_token(
                     token_list, False, opening_bracket_pos - 1
@@ -561,6 +592,8 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     if context_stack[-1] == Context.CURLY_BRACKET:
                         bytecode_stack[-1].create_function_bytecodes(line_number)
                         (bytecodes, _) = bytecode_stack.pop().get_function_bytecodes()
+
+                        anonymous_functions.append(bytecodes)
                 else:
                     bytecode_stack[-1].create_function_bytecodes(
                         line_number, declared_functions[-1]
@@ -574,10 +607,10 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     if function_codechunk:
                         program_codechunks.append(function_codechunk)
 
-                if len(bytecode_stack) == 0:
-                    program_bytecodes.extend(bytecodes)
-                else:
-                    bytecode_stack[-1].add_content_bytecodes(bytecodes)
+                    if len(bytecode_stack) == 0:
+                        program_bytecodes.extend(bytecodes)
+                    else:
+                        bytecode_stack[-1].add_content_bytecodes(bytecodes)
 
                 context_stack.pop()
 

@@ -4,7 +4,7 @@ from os import (
 from string import ascii_letters, digits
 from types import CodeType
 from enum import Enum
-from typing import List, NoReturn, Tuple
+from typing import Any, List, NoReturn, Tuple
 from compiler import call_function, define_function_content, define_function_header
 
 
@@ -205,6 +205,7 @@ class FunctionBytecode:
         self._params = []
         self._header = []
         self._content = []
+        self._identifiers = {}
         self._function_bytecodes = []
         self._function_codechunk = None
 
@@ -218,6 +219,20 @@ class FunctionBytecode:
             function_name == Keyword.MAIN.value,
             line_number,
         )
+
+    def is_identifier_exist(self, identifier_name: str) -> bool:
+        return identifier_name in self._identifiers.keys()
+
+    def add_identifier(self, identifier_name: str) -> None:
+        # TODO: add some bytecodes here to set identifier to local name
+        self._identifiers[identifier_name] = None
+
+    def set_identifier_value(
+        self, line_number: int, identifier_name: str, value: Any
+    ) -> None:
+        self._identifiers[identifier_name] = value
+        # TODO: add some bytecodes here to add value to the identifier
+        self._content.extend()
 
     def add_content_bytecodes(self, bytecodes: list) -> None:
         self._content.extend(bytecodes)
@@ -327,14 +342,24 @@ def get_first_token(
     return token
 
 
-def check_legal_identifier(identfier: str, line_number: int) -> None or NoReturn:
-    is_legal = identfier[0] not in digits
+def check_legal_identifier(identifier: str, line_number: int) -> None or NoReturn:
+    is_legal = identifier[0] not in digits
 
-    for char in identfier:
+    for char in identifier:
         is_legal &= char in [*ascii_letters, *digits, "_"]
 
     if not is_legal:
-        error(f"Illegal identifier name: {identfier}", line_number)
+        error(f"Illegal identifier name: {identifier}", line_number)
+
+
+def clean_identifier(identifier: str) -> str:
+    clean_str = ""
+
+    for char in identifier:
+        if char in [*ascii_letters, *digits, "_"]:
+            clean_str += char
+
+    return clean_str
 
 
 def parse_format_string(strings: list) -> list:
@@ -397,6 +422,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
     token_list = []
     parsed_params = []
     declared_functions = []
+    global_identifiers = []
 
     context_stack: List[Context] = []
     bytecode_stack: List[FunctionBytecode] = []
@@ -445,7 +471,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                             line_number,
                         )
 
-                if function_name != "":
+                if function_name != "" and last_token not in FUNCTION_KEYWORD_TOKENS:
                     check_legal_identifier(function_name, line_number)
                     token_list.append(function_name)
 
@@ -614,10 +640,6 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
 
                 context_stack.pop()
 
-            case "\n":
-                line_number += 1
-                parsed_buffer = ""
-
         if parsed_buffer in TOKEN_KEYS:
             should_parse = True
 
@@ -643,6 +665,45 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
             if should_parse:
                 token_list.append(string_to_token(parsed_buffer))
                 parsed_buffer = ""
+        else:
+            if (
+                (char == Punctuation.SPACE.value or char == "\n")
+                and Context.DOUBLE_QUOTE not in context_stack
+                and Context.SINGLE_QUOTE not in context_stack
+            ):
+                match clean_string := clean_identifier(parsed_buffer):
+                    case "benar" | "BENAR" | "salah" | "SALAH" as v_boolean:
+                        token_list.append(v_boolean)
+                    case _ as v_integer if clean_string.isdigit():
+                        token_list.append(v_integer)
+                    case _ as v_float if clean_string.replace(
+                        ".", ""
+                    ).isdigit() and "." in clean_string:
+                        token_list.append(v_float)
+                    case _ as identifier if clean_string != "":
+                        if len(bytecode_stack) == 0:
+                            # GLobal identifiers
+                            if identifier not in global_identifiers.keys():
+                                error(
+                                    f"Identifier '{identifier}' has not declared yet",
+                                    line_number,
+                                )
+                        else:
+                            # Local identifiers
+                            if not bytecode_stack[-1].is_identifier_exist(identifier):
+                                error(
+                                    f"Identifier '{identifier}' has not declared yet",
+                                    line_number,
+                                )
+
+                parsed_buffer = parsed_buffer.replace(clean_string, "")
+                for char in parsed_buffer:
+                    if char != "\n":
+                        token_list.append(string_to_token(char))
+
+                parsed_buffer = ""
+                if char == "\n":
+                    line_number += 1
 
         if len(token_list) > 0:
             if token_list[-1] == TOKENS[Keyword.FUNCTION]:

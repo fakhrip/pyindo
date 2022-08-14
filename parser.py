@@ -405,6 +405,7 @@ def parse_parameters(token_list: list, anonymous_functions: list) -> list:
 
     final_parameters = []
     for param in parameters:
+        # Parse it as a format string if anonymous functions exist
         if isinstance(param, str) and len(anonymous_functions) > 0:
             for string in parse_format_string([param])[0]:
                 final_parameters.append(string)
@@ -422,7 +423,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
     token_list = []
     parsed_params = []
     declared_functions = []
-    global_identifiers = []
+    global_identifiers = {}
 
     context_stack: List[Context] = []
     bytecode_stack: List[FunctionBytecode] = []
@@ -452,7 +453,8 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     # Function definition
                     if last_token in FUNCTION_KEYWORD_TOKENS:
                         function_name = token_to_string(last_token)
-                        is_entrypoint_exist = True
+                        if not is_entrypoint_exist:
+                            is_entrypoint_exist = last_token == TOKENS[Keyword.MAIN]
 
                     if (
                         function_name == Keyword.MAIN.value
@@ -495,7 +497,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     - token_list[::-1].index(TOKENS[Bracket.OPENING_ROUND_BRACKET])
                 )
                 parsed_params = parse_parameters(
-                    token_list[opening_bracket_pos:], anonymous_functions
+                    token_list[opening_bracket_pos + 1 :], anonymous_functions
                 )
 
                 second_last_token = get_first_token(
@@ -620,7 +622,10 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 ):
                     if context_stack[-1] == Context.CURLY_BRACKET:
                         bytecode_stack[-1].create_function_bytecodes(line_number)
-                        (bytecodes, _) = bytecode_stack.pop().get_function_bytecodes()
+                        (
+                            bytecodes,
+                            _,
+                        ) = bytecode_stack.pop().get_function_bytecodes()
 
                         anonymous_functions.append(bytecodes)
                 else:
@@ -676,7 +681,15 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 parsed_buffer = ""
         else:
             if (
-                (char == Punctuation.SPACE.value or char == "\n")
+                (
+                    program_buffer[pos + 1]
+                    in [
+                        *[e.value for e in Bracket],
+                        *[e.value for e in Punctuation],
+                        *[e.value for e in Operator],
+                        "\n",
+                    ] or char == "\n"
+                )
                 and Context.DOUBLE_QUOTE not in context_stack
                 and Context.SINGLE_QUOTE not in context_stack
             ):
@@ -690,29 +703,33 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     ).isdigit() and "." in clean_string:
                         token_list.append(v_float)
                     case _ as identifier if clean_string != "":
-                        if len(bytecode_stack) == 0:
-                            # GLobal identifiers
-                            if identifier not in global_identifiers.keys():
-                                error(
-                                    f"Identifier '{identifier}' has not declared yet",
-                                    line_number,
-                                )
+                        if program_buffer[pos + 1] not in [
+                            Bracket.OPENING_ROUND_BRACKET.value,
+                            Bracket.OPENING_CURLY_BRACKET.value,
+                        ]:
+                            if len(bytecode_stack) == 0:
+                                # GLobal identifiers
+                                if identifier not in global_identifiers.keys():
+                                    error(
+                                        f"Identifier '{identifier}' has not declared yet",
+                                        line_number,
+                                    )
+                            else:
+                                # Local identifiers
+                                if not bytecode_stack[-1].is_identifier_exist(
+                                    identifier
+                                ):
+                                    error(
+                                        f"Identifier '{identifier}' has not declared yet",
+                                        line_number,
+                                    )
                         else:
-                            # Local identifiers
-                            if not bytecode_stack[-1].is_identifier_exist(identifier):
-                                error(
-                                    f"Identifier '{identifier}' has not declared yet",
-                                    line_number,
-                                )
+                            pos += 1
+                            continue
 
                 parsed_buffer = ""
                 if char == "\n":
                     line_number += 1
-                else:
-                    # Revert back the parsing process after the indentifier
-                    # or literal values have been parsed
-                    pos -= len(parsed_buffer.replace(clean_string, ""))
-                    continue
 
         if len(token_list) > 0:
             if token_list[-1] in [
@@ -729,13 +746,19 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 # Jump to next line if single line comment is found
                 if "\n" in program_buffer[pos:]:
                     pos += program_buffer[pos:].index("\n")
+                    line_number += 1
 
             if token_list[-1] == TOKENS[Punctuation.OPENING_MULTILINE_COMMENT]:
                 # Jump to closing of multiline comment if any
                 if Punctuation.CLOSING_MULTILINE_COMMENT.value in program_buffer[pos:]:
-                    pos += program_buffer[pos:].index(
+                    closing_position = program_buffer[pos:].index(
                         Punctuation.CLOSING_MULTILINE_COMMENT.value
                     )
+                    line_number += program_buffer[pos : pos + closing_position].count(
+                        "\n"
+                    )
+
+                    pos += closing_position
                     token_list.append(Punctuation.CLOSING_MULTILINE_COMMENT)
                 else:
                     # End the parsing process directly if no closing multiline comment found

@@ -3,7 +3,7 @@ from typing import Tuple
 from bytecode import Compare, Instr, Bytecode, Label
 
 
-def format_print(string_args: list, line_number: int, is_global_scope: bool) -> list:
+def format_print(args: list, line_number: int, is_global_scope: bool) -> list:
     bytecodes = []
 
     bytecodes.append(
@@ -14,15 +14,17 @@ def format_print(string_args: list, line_number: int, is_global_scope: bool) -> 
         )
     )
 
-    for pos, string in enumerate(string_args):
-        bytecodes.append(Instr("LOAD_CONST", string))
-
-        if (pos + 1) % 2 == 0:
-            bytecodes.append(Instr("FORMAT_VALUE", 0))
+    for arg in args:
+        match arg:
+            case (v_value, v_type) if v_type == str:
+                bytecodes.append(Instr("LOAD_CONST", v_value))
+            case [_]:
+                bytecodes.extend(arg)
+                bytecodes.append(Instr("FORMAT_VALUE", 0))
 
     bytecodes.extend(
         [
-            Instr("BUILD_STRING", len(string_args)),
+            Instr("BUILD_STRING", len(args)),
             Instr("LOAD_CONST", ""),
             Instr("LOAD_CONST", ("end",)),
             Instr("CALL_FUNCTION_KW", 2),

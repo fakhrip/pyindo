@@ -30,14 +30,12 @@ class Bracket(Enum):
 
 class Operator(Enum):
     PLUS = "+"
-    SELF_PLUS = "++"
     MINUS = "-"
-    SELF_MINUS = "--"
     MULTIPLY = "*"
     POWER = "**"
     DIVIDE = "/"
     MODULO = "%"
-    SAME = "=="
+    EQUAL = "=="
     AND = "&&"
     OR = "||"
     GREATER_THAN = ">"
@@ -47,6 +45,24 @@ class Operator(Enum):
     BIT_NOT = "!"
     BIT_SHIFT_LEFT = "<<"
     BIT_SHIFT_RIGHT = ">>"
+    GREATER_THAN_EQUAL = ">="
+    LESS_THAN_EQUAL = ">="
+    NOT_EQUAL = "!="
+
+
+class SelfOperator(Enum):
+    SELF_PLUS = "+="
+    SELF_MINUS = "-="
+    SELF_MULTIPLY = "*="
+    SELF_DIVIDE = "/="
+    SELF_MODULO = "%="
+    SELF_POWER = "**="
+    SELF_PLUS_ONE = "++"
+    SELF_MINUS_ONE = "--"
+    SELF_BIT_AND = "&="
+    SELF_BIT_OR = "|="
+    SELF_BIT_SHIFT_LEFT = "<<="
+    SELF_BIT_SHIFT_RIGHT = ">>="
 
 
 class Punctuation(Enum):
@@ -58,7 +74,7 @@ class Punctuation(Enum):
     DOLLAR = "$"
     TRIPLEQUOTE = '"""'
     COLON = ":"
-    EQUAL = "="
+    ASSIGN = "="
     SINGLELINE_COMMENT = "//"
     OPENING_MULTILINE_COMMENT = "/*"
     CLOSING_MULTILINE_COMMENT = "*/"
@@ -79,8 +95,8 @@ class Type(Enum):
 class Keyword(Enum):
     FUNCTION = "fungsi"
     PRINT = "tampilkan"
-    SAME = "adalah"
-    NOT_SAME = "bukan"
+    EQUAL = "adalah"
+    NOT_EQUAL = "bukan"
     THEN = "maka"
     CONTINUE = "lewati"
     BREAK = "berhenti"
@@ -91,11 +107,8 @@ class Keyword(Enum):
     WHILE = "selama"
     VARIABLE = "variabel"
     CONSTANT = "konstanta"
-    NOT = "tidak"
     DELETE = "hapus"
     RETURN = "hasilkan"
-    TRUE = "benar"
-    FALSE = "salah"
     MAIN = "utama"
 
 
@@ -104,8 +117,8 @@ class Keyword(Enum):
 TOKENS = {
     Keyword.FUNCTION: 100,
     Keyword.PRINT: 101,
-    Keyword.SAME: 102,
-    Keyword.NOT_SAME: 103,
+    Keyword.EQUAL: 102,
+    Keyword.NOT_EQUAL: 103,
     Keyword.THEN: 104,
     Keyword.CONTINUE: 105,
     Keyword.BREAK: 106,
@@ -116,30 +129,40 @@ TOKENS = {
     Keyword.WHILE: 111,
     Keyword.VARIABLE: 112,
     Keyword.CONSTANT: 113,
-    Keyword.NOT: 114,
-    Keyword.DELETE: 115,
-    Keyword.RETURN: 116,
-    Keyword.TRUE: 117,
-    Keyword.FALSE: 118,
-    Keyword.MAIN: 119,
+    Keyword.DELETE: 114,
+    Keyword.RETURN: 115,
+    Keyword.MAIN: 116,
+    SelfOperator.SELF_PLUS: 200,
+    SelfOperator.SELF_MINUS: 201,
+    SelfOperator.SELF_MULTIPLY: 202,
+    SelfOperator.SELF_DIVIDE: 203,
+    SelfOperator.SELF_MODULO: 204,
+    SelfOperator.SELF_POWER: 205,
+    SelfOperator.SELF_PLUS_ONE: 206,
+    SelfOperator.SELF_MINUS_ONE: 207,
+    SelfOperator.SELF_BIT_AND: 208,
+    SelfOperator.SELF_BIT_OR: 209,
+    SelfOperator.SELF_BIT_SHIFT_LEFT: 210,
+    SelfOperator.SELF_BIT_SHIFT_RIGHT: 211,
     Operator.PLUS: 300,
-    Operator.SELF_PLUS: 301,
-    Operator.MINUS: 302,
-    Operator.SELF_MINUS: 303,
-    Operator.MULTIPLY: 304,
-    Operator.POWER: 305,
-    Operator.DIVIDE: 306,
-    Operator.MODULO: 307,
-    Operator.SAME: 308,
-    Operator.AND: 309,
-    Operator.OR: 310,
-    Operator.GREATER_THAN: 311,
-    Operator.LESS_THAN: 312,
-    Operator.BIT_AND: 313,
-    Operator.BIT_OR: 314,
-    Operator.BIT_NOT: 315,
-    Operator.BIT_SHIFT_LEFT: 316,
-    Operator.BIT_SHIFT_RIGHT: 317,
+    Operator.MINUS: 301,
+    Operator.MULTIPLY: 302,
+    Operator.POWER: 303,
+    Operator.DIVIDE: 304,
+    Operator.MODULO: 305,
+    Operator.EQUAL: 306,
+    Operator.AND: 307,
+    Operator.OR: 308,
+    Operator.GREATER_THAN: 309,
+    Operator.LESS_THAN: 310,
+    Operator.BIT_AND: 311,
+    Operator.BIT_OR: 312,
+    Operator.BIT_NOT: 313,
+    Operator.BIT_SHIFT_LEFT: 314,
+    Operator.BIT_SHIFT_RIGHT: 315,
+    Operator.GREATER_THAN_EQUAL: 316,
+    Operator.LESS_THAN_EQUAL: 317,
+    Operator.NOT_EQUAL: 318,
     Type.GENERIC: 400,
     Type.STRING: 401,
     Type.ARRAY: 402,
@@ -164,7 +187,7 @@ TOKENS = {
     Punctuation.SINGLEQUOTE: 705,
     Punctuation.TRIPLEQUOTE: 706,
     Punctuation.COLON: 707,
-    Punctuation.EQUAL: 708,
+    Punctuation.ASSIGN: 708,
     Punctuation.SINGLELINE_COMMENT: 709,
     Punctuation.OPENING_MULTILINE_COMMENT: 710,
     Punctuation.CLOSING_MULTILINE_COMMENT: 711,
@@ -176,6 +199,7 @@ TOKEN_KEYS = [
     *[e.value for e in Punctuation],
     *[e.value for e in Keyword],
     *[e.value for e in Operator],
+    *[e.value for e in SelfOperator],
     *[e.value for e in Type],
 ]
 
@@ -184,6 +208,7 @@ TOKEN_VALUES = [
     *[e for e in Punctuation],
     *[e for e in Keyword],
     *[e for e in Operator],
+    *[e for e in SelfOperator],
     *[e for e in Type],
 ]
 
@@ -362,53 +387,143 @@ def clean_identifier(identifier: str) -> str:
     return clean_str
 
 
-def parse_format_string(strings: list) -> list:
-    format_strings = []
+def parse_format_string(string: str) -> list:
+    formatted_string = []
 
-    for string in strings:
-        formatted_string = []
+    while "${" in string:
+        starting_point = string.index("${")
+        ending_point = string.index("}")
 
-        while "${" in string:
-            starting_point = string.index("${")
-            ending_point = string.index("}")
+        formatted_string.append(string[:starting_point])
+        string = string[ending_point + 1 :]
 
-            formatted_string.append(string[:starting_point])
-            string = string[ending_point + 1 :]
-
-        format_strings.append(formatted_string)
-
-    return format_strings
+    return formatted_string
 
 
-def parse_parameters(token_list: list, anonymous_functions: list) -> list:
-    parameters = []
+def convert_to_postfix(token_list: list) -> list:
+    stack = []
+    postfix = []
+
+    OPERATORS = {
+        TOKENS[Operator.BIT_AND]: 0,
+        TOKENS[Operator.BIT_OR]: 0,
+        TOKENS[Operator.BIT_NOT]: 0,
+        TOKENS[Operator.BIT_SHIFT_LEFT]: 0,
+        TOKENS[Operator.BIT_SHIFT_RIGHT]: 0,
+        TOKENS[Operator.PLUS]: 1,
+        TOKENS[Operator.MINUS]: 1,
+        TOKENS[Operator.MULTIPLY]: 2,
+        TOKENS[Operator.DIVIDE]: 2,
+        TOKENS[Operator.MODULO]: 2,
+        TOKENS[Operator.POWER]: 3,
+        TOKENS[Operator.EQUAL]: 4,
+        TOKENS[Operator.NOT_EQUAL]: 4,
+        TOKENS[Operator.GREATER_THAN]: 4,
+        TOKENS[Operator.LESS_THAN]: 4,
+        TOKENS[Operator.GREATER_THAN_EQUAL]: 4,
+        TOKENS[Operator.LESS_THAN_EQUAL]: 4,
+        TOKENS[Operator.AND]: 4,
+        TOKENS[Operator.OR]: 4,
+    }
+
     for pos, token in enumerate(token_list):
-        if (
-            token == TOKENS[Punctuation.DOUBLEQUOTE]
-            and len(
-                [x for x in token_list[pos:] if x == TOKENS[Punctuation.DOUBLEQUOTE]]
-            )
-            % 2
-            != 0
-        ):
-            parameters.append(token_list[pos - 1])
+        if isinstance(token, tuple) or isinstance(token, str):
+            postfix.append(token)
+        elif token == TOKENS[Bracket.OPENING_ROUND_BRACKET]:
+            stack.append(token)
+        elif token == TOKENS[Bracket.CLOSING_ROUND_BRACKET]:
+            while stack[-1] != TOKENS[Bracket.OPENING_ROUND_BRACKET]:
+                postfix.append(stack.pop())
+            stack.pop()
+        else:
+            while (
+                len(stack) > 0
+                and stack[-1] != TOKENS[Bracket.OPENING_ROUND_BRACKET]
+                and OPERATORS[stack[-1]] >= OPERATORS[token]
+            ):
+                postfix.append(stack.pop())
+            stack.append(token)
 
-        if (
-            token == TOKENS[Punctuation.SINGLEQUOTE]
-            and len(
-                [x for x in token_list[pos:] if x == TOKENS[Punctuation.SINGLEQUOTE]]
-            )
-            % 2
-            != 0
-        ):
-            parameters.append(token_list[pos - 1])
+        if pos == len(token_list) - 1 and len(stack) > 0:
+            while len(stack) != 0:
+                postfix.append(stack.pop())
+
+    return postfix
+
+
+def evaluate_to_bytecode(postfix_token_list: list) -> list:
+    print("TODO: Implement the postfix evaluator to convert to bytecode")
+    return []
+
+
+def parse_expression(token_list: list, line_number: int) -> list:
+    parsed_tokens = []
+    bracket_stack = []
+    for token in token_list:
+        if isinstance(token, int):
+            match token_to_string(token):
+                case Keyword.EQUAL.value:
+                    parsed_tokens.append(TOKENS[Operator.EQUAL])
+
+                case Keyword.NOT_EQUAL.value:
+                    parsed_tokens.append(TOKENS[Operator.NOT_EQUAL])
+
+                case Bracket.OPENING_ROUND_BRACKET.value:
+                    parsed_tokens.append(token)
+                    bracket_stack.append(token)
+
+                case Bracket.CLOSING_ROUND_BRACKET.value:
+                    parsed_tokens.append(token)
+                    bracket_stack.pop()
+
+                case _ as token_string if token in [*[TOKENS[e] for e in Operator]]:
+                    if parsed_tokens[-1] in [*[TOKENS[e] for e in Operator]]:
+                        error(f"Illegal token '{token_string}'", line_number)
+
+                    parsed_tokens.append(token)
+
+                case _ as token_string if token not in [
+                    TOKENS[Punctuation.SPACE],
+                    TOKENS[Punctuation.SINGLEQUOTE],
+                    TOKENS[Punctuation.DOUBLEQUOTE],
+                    TOKENS[Punctuation.OPENING_MULTILINE_COMMENT],
+                    TOKENS[Punctuation.CLOSING_MULTILINE_COMMENT],
+                ]:
+                    error(f"Illegal token '{token_string}'", line_number)
+        else:
+            parsed_tokens.append(token)
+
+    if len(bracket_stack) > 0:
+        error("Expecting ')'", line_number)
+
+    if len(parsed_tokens) == 0:
+        error("Expression not found", line_number)
+
+    return evaluate_to_bytecode(convert_to_postfix(parsed_tokens))
+
+
+def parse_parameters(
+    token_list: list, anonymous_functions: list, line_number: int
+) -> list:
+    parameters = []
+
+    cur_tokens = []
+    for pos, token in enumerate(token_list):
+        if token == TOKENS[Punctuation.COMMA]:
+            parameters.extend(parse_expression(cur_tokens, line_number))
+            cur_tokens = []
+
+        cur_tokens.append(token)
+
+        if pos == len(token_list) - 1 and len(cur_tokens) > 0:
+            parameters.extend(parse_expression(cur_tokens, line_number))
 
     final_parameters = []
     for param in parameters:
         # Parse it as a format string if anonymous functions exist
-        if isinstance(param, str) and len(anonymous_functions) > 0:
-            for string in parse_format_string([param])[0]:
-                final_parameters.append(string)
+        if isinstance(param[1], str) and len(anonymous_functions) > 0:
+            for string in parse_format_string(param):
+                final_parameters.append((string, str))
                 final_parameters.append(anonymous_functions.pop())
             continue
 
@@ -497,7 +612,9 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     - token_list[::-1].index(TOKENS[Bracket.OPENING_ROUND_BRACKET])
                 )
                 parsed_params = parse_parameters(
-                    token_list[opening_bracket_pos + 1 :], anonymous_functions
+                    token_list[opening_bracket_pos + 1 :],
+                    anonymous_functions,
+                    line_number,
                 )
 
                 second_last_token = get_first_token(
@@ -566,7 +683,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                         != 0
                     ):
                         # Closing double || single quote
-                        token_list.append(parsed_buffer[:-1])
+                        token_list.append((parsed_buffer[:-1], str))
                         token_list.append(TOKENS[cur_quote])
                         context_stack.pop()
 
@@ -671,13 +788,30 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     should_parse = False
 
             if should_parse:
-                if isinstance(
-                    token := string_to_token(program_buffer[pos : pos + 2]), int
-                ):
-                    token_list.append(token)
-                    pos += 1
-                else:
-                    token_list.append(string_to_token(parsed_buffer))
+                # Parse token with the longest char possible first
+                token = (
+                    three_char
+                    if isinstance(
+                        three_char := string_to_token(program_buffer[pos : pos + 3]),
+                        int,
+                    )
+                    else (
+                        two_char
+                        if isinstance(
+                            two_char := string_to_token(program_buffer[pos : pos + 2]),
+                            int,
+                        )
+                        else string_to_token(parsed_buffer)
+                    )
+                )
+
+                pos += (
+                    2
+                    if isinstance(three_char, int)
+                    else (1 if isinstance(two_char, int) else 0)
+                )
+
+                token_list.append(token)
                 parsed_buffer = ""
         else:
             if (
@@ -687,21 +821,23 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                         *[e.value for e in Bracket],
                         *[e.value for e in Punctuation],
                         *[e.value for e in Operator],
+                        *[e.value for e in SelfOperator],
                         "\n",
-                    ] or char == "\n"
+                    ]
+                    or char == "\n"
                 )
                 and Context.DOUBLE_QUOTE not in context_stack
                 and Context.SINGLE_QUOTE not in context_stack
             ):
                 match clean_string := clean_identifier(parsed_buffer):
                     case "benar" | "BENAR" | "salah" | "SALAH" as v_boolean:
-                        token_list.append(v_boolean)
+                        token_list.append((v_boolean, bool))
                     case _ as v_integer if clean_string.isdigit():
-                        token_list.append(v_integer)
+                        token_list.append((v_integer, int))
                     case _ as v_float if clean_string.replace(
                         ".", ""
                     ).isdigit() and "." in clean_string:
-                        token_list.append(v_float)
+                        token_list.append((v_float, float))
                     case _ as identifier if clean_string != "":
                         if program_buffer[pos + 1] not in [
                             Bracket.OPENING_ROUND_BRACKET.value,

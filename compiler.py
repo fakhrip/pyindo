@@ -3,6 +3,119 @@ from typing import Tuple
 from bytecode import Compare, Instr, Bytecode, Label
 
 
+def load_const_or_name(data: tuple or str) -> Instr:
+    if isinstance(data, tuple):
+        match data:
+            case (v_value, v_type) if v_type == int:
+                return Instr("LOAD_CONST", int(v_value))
+            case (v_value, v_type) if v_type == float:
+                return Instr("LOAD_CONST", float(v_value))
+            case (v_value, v_type) if v_type == str:
+                return Instr("LOAD_CONST", str(v_value))
+            case (v_value, v_type) if v_type == bool:
+                if v_value in ["benar", "BENAR"]:
+                    return Instr("LOAD_CONST", True)
+                elif v_value in ["salah", "SALAH"]:
+                    return Instr("LOAD_CONST", False)
+                else:
+                    print("TODO: Compiler error")
+    elif isinstance(data, str):
+        return Instr("LOAD_NAME", data)
+    else:
+        print("TODO: Compiler error")
+
+
+def bool_operation(
+    l_operand: tuple or list or str, r_operand: tuple or str or None, o_type: str
+) -> list:
+    bytecodes = []
+
+    if isinstance(l_operand, tuple) or isinstance(l_operand, str):
+        bytecodes.append(load_const_or_name(l_operand))
+    else:
+        bytecodes.extend(l_operand)
+
+    if r_operand:
+        bytecodes.append(load_const_or_name(r_operand))
+
+    match o_type:
+        case "&&":
+            print("TODO: Implement the && bool operation")
+        case "||":
+            print("TODO: Implement the || bool operation")
+
+    return bytecodes
+
+
+def math_operation(
+    l_operand: tuple or list or str, r_operand: tuple or str or None, o_type: str
+) -> list:
+    bytecodes = []
+    if isinstance(l_operand, tuple) or isinstance(l_operand, str):
+        bytecodes.append(load_const_or_name(l_operand))
+    else:
+        bytecodes.extend(l_operand)
+
+    if r_operand:
+        bytecodes.append(load_const_or_name(r_operand))
+
+    match o_type:
+        case "+":
+            bytecodes.append(Instr("BINARY_ADD"))
+        case "-":
+            bytecodes.append(Instr("BINARY_SUBTRACT"))
+        case "/":
+            bytecodes.append(Instr("BINARY_TRUE_DIVIDE"))
+        case "*":
+            bytecodes.append(Instr("BINARY_MULTIPLY"))
+        case "*":
+            bytecodes.append(Instr("BINARY_MULTIPLY"))
+        case "&":
+            bytecodes.append(Instr("BINARY_AND"))
+        case "%":
+            bytecodes.append(Instr("BINARY_MODULO"))
+        case "|":
+            bytecodes.append(Instr("BINARY_OR"))
+        case "<<":
+            bytecodes.append(Instr("BINARY_LSHIFT"))
+        case ">>":
+            bytecodes.append(Instr("BINARY_RSHIFT"))
+        case "**":
+            bytecodes.append(Instr("BINARY_POWER"))
+
+    return bytecodes
+
+
+def comparison(
+    l_operand: tuple or list or str, r_operand: tuple or str or None, c_type: str
+) -> list:
+    bytecodes = []
+
+    if isinstance(l_operand, tuple) or isinstance(l_operand, str):
+        bytecodes.append(load_const_or_name(l_operand))
+    else:
+        bytecodes.extend(l_operand)
+
+    if r_operand:
+        bytecodes.append(load_const_or_name(r_operand))
+
+    match c_type:
+        case "==":
+            bytecodes.append(Instr("COMPARE_OP", Compare.EQ))
+        case "!=":
+            bytecodes.append(Instr("COMPARE_OP", Compare.NE))
+        case ">":
+            bytecodes.append(Instr("COMPARE_OP", Compare.GT))
+        case "<":
+            bytecodes.append(Instr("COMPARE_OP", Compare.LT))
+        case ">=":
+            bytecodes.append(Instr("COMPARE_OP", Compare.GE))
+        case "<=":
+            bytecodes.append(Instr("COMPARE_OP", Compare.LE))
+
+    return bytecodes
+
+
 def format_print(args: list, line_number: int, is_global_scope: bool) -> list:
     bytecodes = []
 

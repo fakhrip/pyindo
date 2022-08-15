@@ -5,7 +5,14 @@ from string import ascii_letters, digits
 from types import CodeType
 from enum import Enum
 from typing import Any, List, NoReturn, Tuple
-from compiler import call_function, define_function_content, define_function_header
+from compiler import (
+    math_operation,
+    bool_operation,
+    call_function,
+    comparison,
+    define_function_content,
+    define_function_header,
+)
 
 
 class Context(Enum):
@@ -312,6 +319,18 @@ def error(statement, line_number=None) -> NoReturn:
     exit(EX_SOFTWARE)
 
 
+def compiler_error(statement) -> NoReturn:
+    """
+    Show compiler error statement if there are any
+    """
+
+    print(
+        f"\r[!] Compiler Error: {statement}\n\n--+--(Please file an issue in the github repository if you found this)\n--+--",
+        end="",
+    )
+    exit(EX_SOFTWARE)
+
+
 def search(
     program_buffer: str,
     pos: int,
@@ -452,8 +471,62 @@ def convert_to_postfix(token_list: list) -> list:
 
 
 def evaluate_to_bytecode(postfix_token_list: list) -> list:
-    print("TODO: Implement the postfix evaluator to convert to bytecode")
-    return []
+    if len(postfix_token_list) == 1:
+        if isinstance(postfix_token_list[0], tuple) or isinstance(
+            postfix_token_list[0], str
+        ):
+            return [postfix_token_list[0]]
+        else:
+            compiler_error(
+                f"Orphan '{token_to_string(postfix_token_list[0])}' token without any expression in bytecode expression evaluator"
+            )
+
+    stack = []
+    bytecodes = []
+    for token in postfix_token_list:
+        if isinstance(token, tuple) or isinstance(token, str):
+            stack.append(token)
+        else:
+            if len(stack) > 1:
+                r_operand = stack.pop()
+                l_operand = stack.pop()
+            else:
+                r_operand = stack.pop()
+                l_operand = bytecodes
+
+            match token_to_string(token):
+                case _ as token_string if token_string in [
+                    Operator.EQUAL.value,
+                    Operator.NOT_EQUAL.value,
+                    Operator.GREATER_THAN.value,
+                    Operator.LESS_THAN.value,
+                    Operator.GREATER_THAN_EQUAL.value,
+                    Operator.LESS_THAN_EQUAL.value,
+                ]:
+                    bytecodes = comparison(l_operand, r_operand, token_string)
+
+                case _ as token_string if token_string in [
+                    Operator.BIT_AND.value,
+                    Operator.BIT_OR.value,
+                    Operator.BIT_NOT.value,
+                    Operator.BIT_SHIFT_LEFT.value,
+                    Operator.BIT_SHIFT_RIGHT.value,
+                    Operator.PLUS.value,
+                    Operator.MINUS.value,
+                    Operator.MULTIPLY.value,
+                    Operator.DIVIDE.value,
+                    Operator.MODULO.value,
+                    Operator.POWER.value,
+                ]:
+                    bytecodes = math_operation(l_operand, r_operand, token_string)
+
+                case _ as token_string if token_string in [
+                    Operator.AND.value,
+                    Operator.OR.value,
+                ]:
+                    bytecodes = bool_operation(l_operand, r_operand, token_string)
+
+    return bytecodes
 
 
 def parse_expression(token_list: list, line_number: int) -> list:
@@ -488,6 +561,7 @@ def parse_expression(token_list: list, line_number: int) -> list:
                     TOKENS[Punctuation.DOUBLEQUOTE],
                     TOKENS[Punctuation.OPENING_MULTILINE_COMMENT],
                     TOKENS[Punctuation.CLOSING_MULTILINE_COMMENT],
+                    TOKENS[Punctuation.COMMA],
                 ]:
                     error(f"Illegal token '{token_string}'", line_number)
         else:
@@ -521,7 +595,11 @@ def parse_parameters(
     final_parameters = []
     for param in parameters:
         # Parse it as a format string if anonymous functions exist
-        if isinstance(param[1], str) and len(anonymous_functions) > 0:
+        if (
+            isinstance(param, tuple)
+            and param[1] == str
+            and len(anonymous_functions) > 0
+        ):
             for string in parse_format_string(param):
                 final_parameters.append((string, str))
                 final_parameters.append(anonymous_functions.pop())
@@ -875,8 +953,15 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 TOKENS[Keyword.VARIABLE],
                 TOKENS[Keyword.CONSTANT],
             ]:
-                # Space have to exist after all these checked tokens
+                # Space have to exist after all those checked tokens
                 search(program_buffer, pos + 1, line_number, Punctuation.SPACE)
+
+            if token_list[-1] in [
+                TOKENS[SelfOperator.SELF_PLUS_ONE],
+                TOKENS[SelfOperator.SELF_MINUS_ONE],
+            ]:
+                # Semicolon have to exist after those self operators
+                search(program_buffer, pos + 1, line_number, Punctuation.SEMICOLON)
 
             if token_list[-1] == TOKENS[Punctuation.SINGLELINE_COMMENT]:
                 # Jump to next line if single line comment is found

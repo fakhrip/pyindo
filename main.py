@@ -6,7 +6,7 @@ from os.path import isfile
 from sys import argv, exit
 from compiler import compile_bytecodes
 from parser import parse_program
-from bytecode import Bytecode, dump_bytecode
+from bytecode import Bytecode, dump_bytecode, CompilerFlags
 from contextlib import redirect_stdout
 from io import StringIO
 
@@ -81,6 +81,10 @@ if __name__ == "__main__":
 
         bytecodes, codechunks = parse_program(f_buffer)
         compiled_bytecode = compile_bytecodes(bytecodes)
+
+        if "optimization" in enabled_options.keys():
+            compiled_bytecode.flags |= CompilerFlags.OPTIMIZED
+
         exec(compiled_bytecode.to_code())
 
         if "debug_output" in enabled_options.keys():

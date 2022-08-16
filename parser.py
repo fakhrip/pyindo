@@ -13,7 +13,7 @@ from compiler import (
     call_function,
     comparison,
     define_function_content,
-    define_function_header,
+    define_function_wrapper,
 )
 from bytecode import Label
 
@@ -304,14 +304,14 @@ class FunctionBytecode:
 
     def set_header_bytecodes(self, line_number: int) -> None:
         if self._function_name == Keyword.MAIN.value:
-            self._header, self._tail = define_function_header(
+            self._header, self._tail = define_function_wrapper(
                 self.function_name,
                 self._params,
                 self._function_name == Keyword.MAIN.value,
                 line_number,
             )
         else:
-            self._header = define_function_header(
+            self._header = define_function_wrapper(
                 self._function_name,
                 self._params,
                 self._function_name == Keyword.MAIN.value,

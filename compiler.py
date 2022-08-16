@@ -303,7 +303,7 @@ def define_entrypoint_function_tail() -> Tuple[list, Label]:
     )
 
 
-def define_function_header(
+def define_function_wrapper(
     function_name: str,
     function_params: list,
     is_entrypoint_function: bool,
@@ -321,6 +321,7 @@ def define_function_header(
             ]
         )
 
+        # Also define the function tail for entrypoint
         return (bytecodes, define_entrypoint_function_tail())
     else:
         # Function header definition for other functions

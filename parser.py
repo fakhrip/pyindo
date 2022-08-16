@@ -120,8 +120,8 @@ class Keyword(Enum):
     DELETE = "hapus"
     RETURN = "hasilkan"
     MAIN = "utama"
-    # Dont tokenize this as this just act as
-    # a mark throughout the whole parser prcess
+    # Dont tokenize this as this just act as a
+    # marker throughout the whole parser process
     ELIF = "selainnya jika"
 
 

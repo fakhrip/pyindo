@@ -1,11 +1,13 @@
+from __future__ import annotations
 from os import (
     EX_SOFTWARE,  # Exit code that means an internal software error was detected.
 )
 from string import ascii_letters, digits
 from types import CodeType
 from enum import Enum
-from typing import Any, List, NoReturn, Tuple
+from typing import Any, List, NoReturn, Tuple, Union
 from compiler import (
+    condition,
     math_operation,
     bool_operation,
     call_function,
@@ -13,6 +15,7 @@ from compiler import (
     define_function_content,
     define_function_header,
 )
+from bytecode import Label
 
 
 class Context(Enum):
@@ -117,6 +120,9 @@ class Keyword(Enum):
     DELETE = "hapus"
     RETURN = "hasilkan"
     MAIN = "utama"
+    # Dont tokenize this as this just act as
+    # a mark throughout the whole parser prcess
+    ELIF = "selainnya jika"
 
 
 # TODO: Change this to automatic enum value when the development process
@@ -201,6 +207,7 @@ TOKENS = {
     Punctuation.EOF: 999,
 }
 
+
 TOKEN_KEYS = [
     *[e.value for e in Bracket],
     *[e.value for e in Punctuation],
@@ -232,25 +239,84 @@ FUNCTION_KEYWORD_TOKENS = [
 ]
 
 
+# TODO: Create LoopBytecode
+
+
+class ConditionBytecode:
+    def __init__(self, c_type: str):
+        self._condition_type = c_type
+        self._conditional_expression = []
+        self._conditional_statements = []
+        self._other_coditional_statements = []
+
+    @property
+    def condition_type(self) -> str:
+        return self._condition_type
+
+    def set_conditional_expression(self, expressions: list) -> None:
+        self._conditional_expression = expressions
+
+    def add_conditional_statement(self, statements: list) -> None:
+        self._conditional_statements.extend(statements)
+
+    def add_other_conditional_statement(self, statements: list) -> None:
+        other_condition_label = Label()
+        self._other_coditional_statements.extend([other_condition_label, *statements])
+
+        return other_condition_label
+
+    def create_condition_bytecodes(
+        self,
+        jump_label: Union[Label, None] = None,
+        condition_label: Union[Label, None] = None,
+    ) -> list:
+        return condition(
+            self._conditional_expression,
+            self._conditional_statements,
+            self._other_coditional_statements,
+            self._condition_type,
+            jump_label,
+            condition_label,
+        )
+
+
 class FunctionBytecode:
-    def __init__(self):
-        self._params = []
-        self._header = []
-        self._content = []
-        self._identifiers = {}
-        self._function_bytecodes = []
-        self._function_codechunk = None
+    def __init__(self, function_name: Union[str, None] = None):
+        self._params: list = []
+        self._header: list = []
+        self._tail: Tuple[list, Label] = ()
+        self._content: list = []
+        self._function_name: Union[str, None] = function_name
+        self._identifiers: dict = {}
+        self._function_bytecodes: list = []
+        self._function_codechunk: Union[CodeType, None] = None
+
+    @property
+    def function_tail(self) -> Tuple[list, Label]:
+        return self._tail
+
+    @property
+    def function_name(self) -> Union[str, None]:
+        return self._function_name
 
     def set_function_params(self, parameters: list) -> None:
         self._params = parameters
 
-    def set_header_bytecodes(self, line_number: int, function_name: str) -> None:
-        self._header = define_function_header(
-            function_name,
-            self._params,
-            function_name == Keyword.MAIN.value,
-            line_number,
-        )
+    def set_header_bytecodes(self, line_number: int) -> None:
+        if self._function_name == Keyword.MAIN.value:
+            self._header, self._tail = define_function_header(
+                self.function_name,
+                self._params,
+                self._function_name == Keyword.MAIN.value,
+                line_number,
+            )
+        else:
+            self._header = define_function_header(
+                self._function_name,
+                self._params,
+                self._function_name == Keyword.MAIN.value,
+                line_number,
+            )
 
     def is_identifier_exist(self, identifier_name: str) -> bool:
         return identifier_name in self._identifiers.keys()
@@ -269,22 +335,21 @@ class FunctionBytecode:
     def add_content_bytecodes(self, bytecodes: list) -> None:
         self._content.extend(bytecodes)
 
-    def create_function_bytecodes(
-        self, line_number: int, function_name: str = None
-    ) -> None:
+    def create_function_bytecodes(self, line_number: int) -> None:
         bytecodes, function_codechunk = define_function_content(
-            function_name,
+            self._function_name,
             {
                 "header": self._header,
+                "tail": self._tail,
                 "content": self._content,
             },
-            function_name == Keyword.MAIN.value,
+            self._function_name == Keyword.MAIN.value,
             line_number,
         )
 
         self._function_bytecodes = bytecodes
 
-        if function_name:
+        if self._function_name:
             self._function_codechunk = function_codechunk
 
     def get_function_bytecodes(self) -> Tuple[list, CodeType or None]:
@@ -370,20 +435,20 @@ def get_first_token(
     is_forward: bool,
     from_pos: int = None,
     other_than: list = [Punctuation.SPACE],
-) -> int or None:
+) -> Tuple[int or None, int or None]:
     token = None
 
     from_pos = from_pos if from_pos else len(token_list)
     token_list = token_list[from_pos:] if is_forward else token_list[:from_pos][::-1]
-    for token in token_list:
+    for pos, token in enumerate(token_list):
         is_in_whitelist = False
         for token_whitelist in other_than:
             is_in_whitelist |= token == TOKENS[token_whitelist]
 
         if not is_in_whitelist:
-            return token
+            return token, pos
 
-    return token
+    return token, len(token_list)
 
 
 def check_legal_identifier(identifier: str, line_number: int) -> None or NoReturn:
@@ -619,7 +684,8 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
     global_identifiers = {}
 
     context_stack: List[Context] = []
-    bytecode_stack: List[FunctionBytecode] = []
+    bytecode_stack: List[Union[FunctionBytecode, ConditionBytecode]] = []
+    function_context_stack: List[str] = []
 
     anonymous_functions = []
 
@@ -638,7 +704,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
             case Bracket.OPENING_ROUND_BRACKET.value:
                 # Start to parse function name backward
                 function_name = parsed_buffer[:-1].strip()
-                last_token = get_first_token(token_list, False)
+                last_token, _ = get_first_token(token_list, False)
                 if last_token and (
                     last_token == TOKENS[Keyword.FUNCTION]
                     or last_token in FUNCTION_KEYWORD_TOKENS
@@ -646,6 +712,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     # Function definition
                     if last_token in FUNCTION_KEYWORD_TOKENS:
                         function_name = token_to_string(last_token)
+
                         if not is_entrypoint_exist:
                             is_entrypoint_exist = last_token == TOKENS[Keyword.MAIN]
 
@@ -695,7 +762,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     line_number,
                 )
 
-                second_last_token = get_first_token(
+                second_last_token, _ = get_first_token(
                     token_list, False, opening_bracket_pos - 1
                 )
                 if (
@@ -711,7 +778,9 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     )
                 else:
                     # Function call
-                    last_token = get_first_token(token_list, False, opening_bracket_pos)
+                    last_token, _ = get_first_token(
+                        token_list, False, opening_bracket_pos
+                    )
                     function_name = (
                         token_to_string(last_token)
                         if last_token in TOKENS.values()
@@ -728,14 +797,17 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                             )
                         )
                     else:
-                        bytecode_stack[-1].add_content_bytecodes(
-                            call_function(
-                                function_name,
-                                parsed_params,
-                                line_number,
-                                False,
-                            )
+                        bytecodes = call_function(
+                            function_name,
+                            parsed_params,
+                            line_number,
+                            False,
                         )
+
+                        if isinstance(bytecode_stack[-1], FunctionBytecode):
+                            bytecode_stack[-1].add_content_bytecodes(bytecodes)
+                        elif isinstance(bytecode_stack[-1], ConditionBytecode):
+                            bytecode_stack[-1].add_conditional_statement(bytecodes)
 
                     search(program_buffer, pos + 1, line_number, Punctuation.SEMICOLON)
 
@@ -783,20 +855,54 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 if len(declared_functions) == 0:
                     error("Unexpected '{'", line_number)
 
+                bytecode_class = None
+
                 if (
                     Context.DOUBLE_QUOTE in context_stack
                     or Context.SINGLE_QUOTE in context_stack
                 ):
                     if program_buffer[pos - 1] == Punctuation.DOLLAR.value:
                         function_bytecode = FunctionBytecode()
-                        bytecode_stack.append(function_bytecode)
+                        bytecode_class = function_bytecode
+                elif (
+                    Keyword.IF.value in function_context_stack
+                    or Keyword.ELIF.value in function_context_stack
+                    or Keyword.ELSE.value in function_context_stack
+                ):
+                    last_branch_context = None
+                    for context in function_context_stack[::-1]:
+                        if context in [
+                            Keyword.IF.value,
+                            Keyword.ELIF.value,
+                            Keyword.ELSE.value,
+                        ]:
+                            last_branch_context = context
+                            break
+
+                    match last_branch_context:
+                        case Keyword.IF.value:
+                            condition_bytecode = ConditionBytecode(Keyword.IF.value)
+                            condition_bytecode.set_conditional_expression(parsed_params)
+                            bytecode_class = condition_bytecode
+
+                        case Keyword.ELIF.value:
+                            condition_bytecode = ConditionBytecode(Keyword.ELIF.value)
+                            condition_bytecode.set_conditional_expression(parsed_params)
+                            bytecode_class = condition_bytecode
+
+                    match token_to_string(get_first_token(token_list, False)[0]):
+                        case Keyword.ELSE.value:
+                            condition_bytecode = ConditionBytecode(Keyword.ELSE.value)
+                            bytecode_class = condition_bytecode
+
                 else:
-                    function_bytecode = FunctionBytecode()
+                    function_bytecode = FunctionBytecode(declared_functions[-1])
                     function_bytecode.set_function_params(parsed_params)
-                    function_bytecode.set_header_bytecodes(
-                        line_number, declared_functions[-1]
-                    )
-                    bytecode_stack.append(function_bytecode)
+                    function_bytecode.set_header_bytecodes(line_number)
+                    bytecode_class = function_bytecode
+
+                if bytecode_class:
+                    bytecode_stack.append(bytecode_class)
 
                 context_stack.append(Context.CURLY_BRACKET)
                 parsed_params = []
@@ -823,10 +929,72 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                         ) = bytecode_stack.pop().get_function_bytecodes()
 
                         anonymous_functions.append(bytecodes)
+                elif isinstance(bytecode_stack[-1], ConditionBytecode):
+                    # TODO: implement parse ahead
+                    is_else_ahead = False
+
+                    cur_parsed_buffer = ""
+                    for cur_char in program_buffer[pos + 1 :]:
+                        if cur_char != Punctuation.SPACE.value:
+                            cur_parsed_buffer += cur_char
+                        elif cur_char in [
+                            *[e.value for e in Bracket],
+                            *[e.value for e in Punctuation],
+                            *[e.value for e in Operator],
+                            *[e.value for e in SelfOperator],
+                            " " "\n",
+                        ]:
+                            if cur_parsed_buffer != "":
+                                is_else_ahead = cur_parsed_buffer == Keyword.ELSE.value
+                                break
+                            elif cur_char in [" ", "\n"]:
+                                cur_parsed_buffer = ""
+                                continue
+                            else:
+                                is_else_ahead = False
+                                break
+
+                    if not is_else_ahead:
+                        condition_stack: List[ConditionBytecode] = []
+                        while isinstance(bytecode_stack[-1], ConditionBytecode):
+                            condition_stack.append(bytecode_stack.pop())
+
+                        target_label = Label()
+
+                        condition_temp = None
+                        condition_label = None
+                        for condition in condition_stack:
+                            if not condition_temp:
+                                condition_temp = condition
+                            else:
+                                condition_temp = (
+                                    condition_temp.create_condition_bytecodes(
+                                        condition_label
+                                    )
+                                )
+                                condition_label = (
+                                    condition.add_other_conditional_statement(
+                                        condition_temp
+                                    )
+                                )
+                                condition_temp = condition
+
+                        bytecode_stack[-1].add_content_bytecodes(
+                            [
+                                *condition_temp.create_condition_bytecodes(
+                                    target_label,
+                                    condition_label
+                                    if condition_label
+                                    else target_label,
+                                ),
+                                target_label,
+                            ]
+                        )
+                    else:
+                        # There are another condition, so keep on parsing...
+                        pass
                 else:
-                    bytecode_stack[-1].create_function_bytecodes(
-                        line_number, declared_functions[-1]
-                    )
+                    bytecode_stack[-1].create_function_bytecodes(line_number)
 
                     (
                         bytecodes,
@@ -962,6 +1130,15 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
             ]:
                 # Semicolon have to exist after those self operators
                 search(program_buffer, pos + 1, line_number, Punctuation.SEMICOLON)
+
+            if token_list[-1] in [TOKENS[Keyword.IF], TOKENS[Keyword.ELSE]]:
+                if (
+                    token_list[-1] == TOKENS[Keyword.IF]
+                    and get_first_token(token_list, False)[0] == TOKENS[Keyword.ELSE]
+                ):
+                    function_context_stack.append(Keyword.ELIF.value)
+                else:
+                    function_context_stack.append(token_to_string(token_list[-1]))
 
             if token_list[-1] == TOKENS[Punctuation.SINGLELINE_COMMENT]:
                 # Jump to next line if single line comment is found

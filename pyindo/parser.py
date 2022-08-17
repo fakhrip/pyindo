@@ -401,34 +401,75 @@ def search(
     program_buffer: str,
     pos: int,
     line_number: int,
-    token_class: Bracket or Punctuation or Keyword,
-) -> Tuple[int, int] or NoReturn:
+    token_class: Union[Bracket, Punctuation, Keyword],
+    should_exist: bool = True,
+) -> Union[Tuple[int, int], NoReturn]:
     parsed_buffer = ""
 
-    for cur_pos, char in enumerate(program_buffer[pos:]):
+    while (char := program_buffer[pos]) != Punctuation.EOF.value:
         parsed_buffer += char
 
         if parsed_buffer in TOKEN_KEYS:
-            token = string_to_token(parsed_buffer)
+            token = (
+                three_char
+                if isinstance(
+                    three_char := string_to_token(program_buffer[pos : pos + 3]),
+                    int,
+                )
+                else (
+                    two_char
+                    if isinstance(
+                        two_char := string_to_token(program_buffer[pos : pos + 2]),
+                        int,
+                    )
+                    else string_to_token(parsed_buffer)
+                )
+            )
+
+            pos += (
+                2
+                if isinstance(three_char, int)
+                else (1 if isinstance(two_char, int) else 0)
+            )
+
             if (
                 token != TOKENS[Punctuation.SPACE]
                 or TOKENS[token_class] == TOKENS[Punctuation.SPACE]
             ) and token != TOKENS[token_class]:
-                error(
-                    f"Expecting '{token_class.value}' but got '{token_to_string(token)}'",
-                    line_number,
-                )
+                if should_exist:
+                    error(
+                        f"Expecting '{token_class.value}' but got '{token_to_string(token)}'",
+                        line_number,
+                    )
+                else:
+                    return (-1, -1)
             elif token == TOKENS[token_class]:
-                return (pos + cur_pos + 1, line_number)
+                return (TOKENS[token_class], pos + 1)
 
             parsed_buffer = ""
+        else:
+            if (
+                char == Punctuation.SPACE.value
+                and len(parsed_buffer) >= token_class.value
+            ):
+                if should_exist:
+                    error(
+                        f"Expecting '{token_class.value}' but got '{parsed_buffer}'",
+                        line_number,
+                    )
+                return (-1, -1)
 
         if char == "\n":
             line_number += 1
             parsed_buffer = ""
 
-    # Token string could not be found, should error
-    error(f"Expecting '{token_class.value}' but have reached the End Of File")
+        pos += 1
+
+    if should_exist:
+        # Token string could not be found, should error
+        error(f"Expecting '{token_class.value}' but have reached the End Of File")
+    else:
+        return (-1, -1)
 
 
 def get_first_token(
@@ -436,7 +477,7 @@ def get_first_token(
     is_forward: bool,
     from_pos: int = None,
     other_than: list = [Punctuation.SPACE],
-) -> Tuple[int or None, int or None]:
+) -> Tuple[int, int]:
     token = None
 
     from_pos = from_pos if from_pos else len(token_list)
@@ -449,10 +490,10 @@ def get_first_token(
         if not is_in_whitelist:
             return token, pos
 
-    return token, len(token_list)
+    return -1, -1
 
 
-def check_legal_identifier(identifier: str, line_number: int) -> None or NoReturn:
+def check_legal_identifier(identifier: str, line_number: int) -> Union[None, NoReturn]:
     is_legal = identifier[0] not in digits
 
     for char in identifier:
@@ -684,8 +725,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
     line_number = 1
 
     pos = 0
-    while program_buffer[pos] != Punctuation.EOF.value:
-        char = program_buffer[pos]
+    while (char := program_buffer[pos]) != Punctuation.EOF.value:
         parsed_buffer += char
 
         match char:
@@ -940,29 +980,16 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                             ]
                         )
                 elif isinstance(bytecode_stack[-1], ConditionBytecode):
-                    # TODO: implement parse ahead
-                    is_else_ahead = False
-
-                    cur_parsed_buffer = ""
-                    for cur_char in program_buffer[pos + 1 :]:
-                        if cur_char != Punctuation.SPACE.value:
-                            cur_parsed_buffer += cur_char
-                        elif cur_char in [
-                            *[e.value for e in Bracket],
-                            *[e.value for e in Punctuation],
-                            *[e.value for e in Operator],
-                            *[e.value for e in SelfOperator],
-                            " " "\n",
-                        ]:
-                            if cur_parsed_buffer != "":
-                                is_else_ahead = cur_parsed_buffer == Keyword.ELSE.value
-                                break
-                            elif cur_char in [" ", "\n"]:
-                                cur_parsed_buffer = ""
-                                continue
-                            else:
-                                is_else_ahead = False
-                                break
+                    is_else_ahead = (
+                        search(
+                            program_buffer,
+                            pos + 1,
+                            line_number,
+                            Keyword.ELSE,
+                            should_exist=False,
+                        )[0]
+                        == TOKENS[Keyword.ELSE]
+                    )
 
                     if not is_else_ahead:
                         condition_stack: List[ConditionBytecode] = []

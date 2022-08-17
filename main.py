@@ -4,8 +4,8 @@ from os import (
 )
 from os.path import isfile
 from sys import argv, exit
-from compiler import compile_bytecodes
-from parser import parse_program
+from pyindo.compiler import compile_bytecodes
+from pyindo.parser import parse_program
 from bytecode import Bytecode, dump_bytecode, CompilerFlags
 from contextlib import redirect_stdout
 from io import StringIO

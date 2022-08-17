@@ -2,23 +2,25 @@ from types import CodeType
 from typing import Tuple, Union
 from bytecode import Compare, Instr, Bytecode, Label
 
+from pyindo.types import LiteralString
+
 import re
 import codecs
 
-ESCAPE_SEQUENCE_RE = re.compile(
-    r"""
-    ( \\U........      # 8-digit hex escapes
-    | \\u....          # 4-digit hex escapes
-    | \\x..            # 2-digit hex escapes
-    | \\[0-7]{1,3}     # Octal escapes
-    | \\N\{[^}]+\}     # Unicode characters by name
-    | \\[\\'"abfnrtv]  # Single-character escapes
-    )""",
-    re.UNICODE | re.VERBOSE,
-)
-
 
 def decode_escapes(s):
+    ESCAPE_SEQUENCE_RE = re.compile(
+        r"""
+        ( \\U........      # 8-digit hex escapes
+        | \\u....          # 4-digit hex escapes
+        | \\x..            # 2-digit hex escapes
+        | \\[0-7]{1,3}     # Octal escapes
+        | \\N\{[^}]+\}     # Unicode characters by name
+        | \\[\\'"abfnrtv]  # Single-character escapes
+        )""",
+        re.UNICODE | re.VERBOSE,
+    )
+
     def decode_match(match):
         return codecs.decode(match.group(0), "unicode-escape")
 
@@ -178,17 +180,20 @@ def format_print(args: list, line_number: int, is_global_scope: bool) -> list:
         )
     )
 
+    computed_args_len = 0
     for arg in args:
         match arg:
-            case (v_value, v_type) if v_type == str:
+            case (v_value, v_type) if v_type == LiteralString:
                 bytecodes.append(Instr("LOAD_CONST", decode_escapes(v_value)))
-            case [_]:
+                computed_args_len += 1
+            case list(_) as arg_bytecodes if len(arg_bytecodes) > 0:
                 bytecodes.extend(arg)
                 bytecodes.append(Instr("FORMAT_VALUE", 0))
+                computed_args_len += 1
 
     bytecodes.extend(
         [
-            Instr("BUILD_STRING", len(args)),
+            Instr("BUILD_STRING", computed_args_len),
             Instr("LOAD_CONST", ""),
             Instr("LOAD_CONST", ("end",)),
             Instr("CALL_FUNCTION_KW", 2),

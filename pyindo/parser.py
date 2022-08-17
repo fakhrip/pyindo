@@ -6,7 +6,7 @@ from string import ascii_letters, digits
 from types import CodeType
 from enum import Enum
 from typing import Any, List, NoReturn, Tuple, Union
-from compiler import (
+from pyindo.compiler import (
     condition,
     math_operation,
     bool_operation,
@@ -15,6 +15,7 @@ from compiler import (
     define_function_content,
     define_function_wrapper,
 )
+from pyindo.types import LiteralString
 from bytecode import Label
 
 
@@ -471,19 +472,6 @@ def clean_identifier(identifier: str) -> str:
     return clean_str
 
 
-def parse_format_string(string: str) -> list:
-    formatted_string = []
-
-    while "${" in string:
-        starting_point = string.index("${")
-        ending_point = string.index("}")
-
-        formatted_string.append(string[:starting_point])
-        string = string[ending_point + 1 :]
-
-    return formatted_string
-
-
 def convert_to_postfix(token_list: list) -> list:
     stack = []
     postfix = []
@@ -550,14 +538,17 @@ def evaluate_to_bytecode(postfix_token_list: list) -> list:
     bytecodes = []
     for token in postfix_token_list:
         if isinstance(token, tuple) or isinstance(token, str):
-            stack.append(token)
+            if isinstance(token, tuple) and token[1] == LiteralString:
+                bytecodes.append(token)
+            else:
+                stack.append(token)
         else:
             if len(stack) > 1:
                 r_operand = stack.pop()
                 l_operand = stack.pop()
             else:
                 r_operand = stack.pop()
-                l_operand = bytecodes
+                l_operand = bytecodes[-1]
 
             match token_to_string(token):
                 case _ as token_string if token_string in [
@@ -568,7 +559,10 @@ def evaluate_to_bytecode(postfix_token_list: list) -> list:
                     Operator.GREATER_THAN_EQUAL.value,
                     Operator.LESS_THAN_EQUAL.value,
                 ]:
-                    bytecodes = comparison(l_operand, r_operand, token_string)
+                    if len(stack) > 1:
+                        bytecodes = comparison(l_operand, r_operand, token_string)
+                    else:
+                        bytecodes.append(comparison(l_operand, r_operand, token_string))
 
                 case _ as token_string if token_string in [
                     Operator.BIT_AND.value,
@@ -583,13 +577,23 @@ def evaluate_to_bytecode(postfix_token_list: list) -> list:
                     Operator.MODULO.value,
                     Operator.POWER.value,
                 ]:
-                    bytecodes = math_operation(l_operand, r_operand, token_string)
+                    if len(stack) > 1:
+                        bytecodes = math_operation(l_operand, r_operand, token_string)
+                    else:
+                        bytecodes.append(
+                            math_operation(l_operand, r_operand, token_string)
+                        )
 
                 case _ as token_string if token_string in [
                     Operator.AND.value,
                     Operator.OR.value,
                 ]:
-                    bytecodes = bool_operation(l_operand, r_operand, token_string)
+                    if len(stack) > 1:
+                        bytecodes = bool_operation(l_operand, r_operand, token_string)
+                    else:
+                        bytecodes.append(
+                            bool_operation(l_operand, r_operand, token_string)
+                        )
 
     return bytecodes
 
@@ -627,6 +631,9 @@ def parse_expression(token_list: list, line_number: int) -> list:
                     TOKENS[Punctuation.OPENING_MULTILINE_COMMENT],
                     TOKENS[Punctuation.CLOSING_MULTILINE_COMMENT],
                     TOKENS[Punctuation.COMMA],
+                    TOKENS[Punctuation.DOLLAR],
+                    TOKENS[Bracket.OPENING_CURLY_BRACKET],
+                    TOKENS[Bracket.CLOSING_CURLY_BRACKET],
                 ]:
                     error(f"Illegal token '{token_string}'", line_number)
         else:
@@ -641,9 +648,7 @@ def parse_expression(token_list: list, line_number: int) -> list:
     return evaluate_to_bytecode(convert_to_postfix(parsed_tokens))
 
 
-def parse_parameters(
-    token_list: list, anonymous_functions: list, line_number: int
-) -> list:
+def parse_parameters(token_list: list, line_number: int) -> list:
     parameters = []
 
     cur_tokens = []
@@ -657,22 +662,7 @@ def parse_parameters(
         if pos == len(token_list) - 1 and len(cur_tokens) > 0:
             parameters.extend(parse_expression(cur_tokens, line_number))
 
-    final_parameters = []
-    for param in parameters:
-        # Parse it as a format string if anonymous functions exist
-        if (
-            isinstance(param, tuple)
-            and param[1] == str
-            and len(anonymous_functions) > 0
-        ):
-            for string in parse_format_string(param):
-                final_parameters.append((string, str))
-                final_parameters.append(anonymous_functions.pop())
-            continue
-
-        final_parameters.append(param)
-
-    return final_parameters
+    return parameters
 
 
 def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
@@ -686,8 +676,6 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
     context_stack: List[Context] = []
     bytecode_stack: List[Union[FunctionBytecode, ConditionBytecode]] = []
     function_context_stack: List[str] = []
-
-    anonymous_functions = []
 
     program_bytecodes = []
     program_codechunks = []
@@ -758,7 +746,6 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 )
                 parsed_params = parse_parameters(
                     token_list[opening_bracket_pos + 1 :],
-                    anonymous_functions,
                     line_number,
                 )
 
@@ -833,7 +820,9 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                         != 0
                     ):
                         # Closing double || single quote
-                        token_list.append((parsed_buffer[:-1], str))
+                        if parsed_buffer[:-1] != Bracket.CLOSING_CURLY_BRACKET.value:
+                            token_list.append((parsed_buffer[:-1], LiteralString))
+
                         token_list.append(TOKENS[cur_quote])
                         context_stack.pop()
 
@@ -862,8 +851,22 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     or Context.SINGLE_QUOTE in context_stack
                 ):
                     if program_buffer[pos - 1] == Punctuation.DOLLAR.value:
-                        function_bytecode = FunctionBytecode()
-                        bytecode_class = function_bytecode
+                        token_list.append((parsed_buffer[:-2], LiteralString))
+                        token_list.append(
+                            TOKENS[
+                                Punctuation.DOUBLEQUOTE
+                                if Context.DOUBLE_QUOTE in context_stack
+                                else Punctuation.SINGLE_QUOTE
+                            ]
+                        )
+                        token_list.extend(
+                            [
+                                TOKENS[Punctuation.DOLLAR],
+                                TOKENS[Bracket.OPENING_CURLY_BRACKET],
+                            ]
+                        )
+
+                        parsed_buffer = ""
                 elif (
                     Keyword.IF.value in function_context_stack
                     or Keyword.ELIF.value in function_context_stack
@@ -882,12 +885,12 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     match last_branch_context:
                         case Keyword.IF.value:
                             condition_bytecode = ConditionBytecode(Keyword.IF.value)
-                            condition_bytecode.set_conditional_expression(parsed_params)
+                            condition_bytecode.set_conditional_expression(parsed_params[0])
                             bytecode_class = condition_bytecode
 
                         case Keyword.ELIF.value:
                             condition_bytecode = ConditionBytecode(Keyword.ELIF.value)
-                            condition_bytecode.set_conditional_expression(parsed_params)
+                            condition_bytecode.set_conditional_expression(parsed_params[0])
                             bytecode_class = condition_bytecode
 
                     match token_to_string(get_first_token(token_list, False)[0]):
@@ -922,13 +925,16 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     or Context.SINGLE_QUOTE in context_stack
                 ):
                     if context_stack[-1] == Context.CURLY_BRACKET:
-                        bytecode_stack[-1].create_function_bytecodes(line_number)
-                        (
-                            bytecodes,
-                            _,
-                        ) = bytecode_stack.pop().get_function_bytecodes()
-
-                        anonymous_functions.append(bytecodes)
+                        token_list.extend(
+                            [
+                                TOKENS[Bracket.CLOSING_CURLY_BRACKET],
+                                TOKENS[
+                                    Punctuation.DOUBLEQUOTE
+                                    if Context.DOUBLE_QUOTE in context_stack
+                                    else Punctuation.SINGLEQUOTE
+                                ],
+                            ]
+                        )
                 elif isinstance(bytecode_stack[-1], ConditionBytecode):
                     # TODO: implement parse ahead
                     is_else_ahead = False
@@ -1018,17 +1024,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 Context.DOUBLE_QUOTE in context_stack
                 or Context.SINGLE_QUOTE in context_stack
             ):
-                if (
-                    (
-                        char == Punctuation.DOLLAR.value
-                        and program_buffer[pos + 1] == Bracket.OPENING_CURLY_BRACKET
-                    )
-                    or (
-                        program_buffer[pos - 1] == Punctuation.DOLLAR.value
-                        and char == Bracket.OPENING_CURLY_BRACKET
-                    )
-                    or context_stack[-1] == Context.CURLY_BRACKET
-                ):
+                if context_stack[-1] == Context.CURLY_BRACKET:
                     should_parse = True
                 else:
                     should_parse = False
@@ -1060,21 +1056,28 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                 token_list.append(token)
                 parsed_buffer = ""
         else:
+            should_parse = True
+
             if (
-                (
-                    program_buffer[pos + 1]
-                    in [
-                        *[e.value for e in Bracket],
-                        *[e.value for e in Punctuation],
-                        *[e.value for e in Operator],
-                        *[e.value for e in SelfOperator],
-                        "\n",
-                    ]
-                    or char == "\n"
-                )
-                and Context.DOUBLE_QUOTE not in context_stack
-                and Context.SINGLE_QUOTE not in context_stack
+                Context.DOUBLE_QUOTE in context_stack
+                or Context.SINGLE_QUOTE in context_stack
             ):
+                if context_stack[-1] == Context.CURLY_BRACKET:
+                    should_parse = True
+                else:
+                    should_parse = False
+
+            if (
+                program_buffer[pos + 1]
+                in [
+                    *[e.value for e in Bracket],
+                    *[e.value for e in Punctuation],
+                    *[e.value for e in Operator],
+                    *[e.value for e in SelfOperator],
+                    "\n",
+                ]
+                or char == "\n"
+            ) and should_parse:
                 match clean_string := clean_identifier(parsed_buffer):
                     case "benar" | "BENAR" | "salah" | "SALAH" as v_boolean:
                         token_list.append((v_boolean, bool))

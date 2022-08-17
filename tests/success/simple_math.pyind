@@ -1,0 +1,4 @@
+fungsi utama() {
+    variabel test = (10 + 10) * ((20 / 2) - 1);
+    tampilkan("hasil dari (10 + 10) * ((20 / 2) - 1) = ${test}");
+}

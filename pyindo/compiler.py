@@ -229,7 +229,7 @@ def call_function(
         [
             Instr("CALL_FUNCTION", 0),
             Instr("POP_TOP"),
-            Instr("LOAD_CONST", None),  # TODO: Add function return value
+            Instr("LOAD_CONST", None),
             Instr("RETURN_VALUE"),
         ]
     )
@@ -268,7 +268,9 @@ def define_function_content(
         if function_name:
             # Not an anonymous function so need to compile the function and
             # store its identifier in the bytecode
-            compiled_bytecode = compile_bytecodes(function_bytecodes["content"])
+            compiled_bytecode = compile_bytecodes(
+                [*function_bytecodes["content"], *function_bytecodes["tail"][0]]
+            )
             bytecode_codechunk = compiled_bytecode.to_code()
 
             bytecodes.extend(
@@ -296,15 +298,23 @@ def define_function_content(
     return (bytecodes, bytecode_codechunk)
 
 
-def define_entrypoint_function_tail() -> Tuple[list, Label]:
-    label_else = Label()
+def define_function_tail(is_entrypoint_function: bool) -> Tuple[list, Label]:
+    if is_entrypoint_function:
+        label_else = Label()
+        return (
+            [
+                label_else,
+                Instr("LOAD_CONST", None),
+                Instr("RETURN_VALUE"),
+            ],
+            label_else,
+        )
+
     return (
         [
-            label_else,
-            Instr("LOAD_CONST", None),
+            Instr("LOAD_CONST", None),  # TODO: Add function return value
             Instr("RETURN_VALUE"),
         ],
-        label_else,
     )
 
 
@@ -313,7 +323,7 @@ def define_function_wrapper(
     function_params: list,
     is_entrypoint_function: bool,
     line_number: int,
-) -> Union[list, Tuple[list, Tuple]]:
+) -> Tuple[list, Tuple]:
     bytecodes = []
 
     if is_entrypoint_function:
@@ -327,7 +337,7 @@ def define_function_wrapper(
         )
 
         # Also define the function tail for entrypoint
-        return (bytecodes, define_entrypoint_function_tail())
+        return (bytecodes, define_function_tail(is_entrypoint_function))
     else:
         # Function header definition for other functions
         for param in function_params:
@@ -341,7 +351,7 @@ def define_function_wrapper(
         if len(function_params) > 0:
             bytecodes.append(Instr("BUILD_TUPLE", 2 * len(function_params)))
 
-    return bytecodes
+    return (bytecodes, define_function_tail(is_entrypoint_function))
 
 
 def compile_bytecodes(bytecodes: list) -> Bytecode:

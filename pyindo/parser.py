@@ -312,7 +312,7 @@ class FunctionBytecode:
                 line_number,
             )
         else:
-            self._header = define_function_wrapper(
+            self._header, self._tail = define_function_wrapper(
                 self._function_name,
                 self._params,
                 self._function_name == Keyword.MAIN.value,
@@ -885,12 +885,16 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                     match last_branch_context:
                         case Keyword.IF.value:
                             condition_bytecode = ConditionBytecode(Keyword.IF.value)
-                            condition_bytecode.set_conditional_expression(parsed_params[0])
+                            condition_bytecode.set_conditional_expression(
+                                parsed_params[0]
+                            )
                             bytecode_class = condition_bytecode
 
                         case Keyword.ELIF.value:
                             condition_bytecode = ConditionBytecode(Keyword.ELIF.value)
-                            condition_bytecode.set_conditional_expression(parsed_params[0])
+                            condition_bytecode.set_conditional_expression(
+                                parsed_params[0]
+                            )
                             bytecode_class = condition_bytecode
 
                     match token_to_string(get_first_token(token_list, False)[0]):

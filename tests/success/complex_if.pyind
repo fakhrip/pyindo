@@ -1,0 +1,9 @@
+fungsi utama() {
+    jika (1 adalah 0) {
+        tampilkan("Tidak mantap");
+    } selainnya jika (0 adalah 0) {
+        tampilkan("Mantap");
+    } selainnya {
+        tampilkan("Lol");
+    }
+}

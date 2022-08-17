@@ -979,7 +979,7 @@ def parse_program(program_buffer: str) -> Tuple[list, list[CodeType]]:
                             else:
                                 condition_temp = (
                                     condition_temp.create_condition_bytecodes(
-                                        condition_label
+                                        target_label, condition_label
                                     )
                                 )
                                 condition_label = (

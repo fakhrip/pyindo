@@ -129,4 +129,87 @@ assert helper(2, 3) == 5
 
         parse_module.assert_not_called()
 
+  def test_nested_branches_resume_in_the_correct_block(self):
+    source = """fungsi pilih(a, b) {
+  jika (a) {
+    jika (b) { tampilkan("tt"); } selainnya { tampilkan("tf"); }
+    tampilkan("inside");
+  } selainnya jika (b) { tampilkan("ft"); }
+  selainnya { tampilkan("ff"); }
+  jika (salah) {} selainnya {}
+  tampilkan("after");
+}
+fungsi utama() { pilih(benar, salah); pilih(salah, benar); pilih(salah, salah); pilih(benar, benar); }
+"""
 
+    assert_program_result(
+      run_compiled(source, module_name="__main__"),
+      "tfinsideafterftafterffafterttinsideafter",
+    )
+
+  def test_conditions_accept_general_truthy_values(self):
+    source = """fungsi pilih(value) {
+  jika (value) { hasilkan "T"; } selainnya { hasilkan "F"; }
+}
+fungsi utama() { tampilkan(pilih(0), pilih(1), pilih(""), pilih("yes")); }
+"""
+
+    assert_program_result(run_compiled(source, module_name="__main__"), "FTFT")
+
+  def test_self_and_mutual_recursion_have_independent_frames(self):
+    source = """fungsi utama() { tampilkan(faktorial(5), genap(10), ganjil(10)); }
+fungsi faktorial(n) {
+  jika (n <= 1) { hasilkan 1; }
+  hasilkan n * faktorial(n - 1);
+}
+fungsi genap(n) { jika (n == 0) { hasilkan benar; } hasilkan ganjil(n - 1); }
+fungsi ganjil(n) { jika (n == 0) { hasilkan salah; } hasilkan genap(n - 1); }
+"""
+
+    assert_program_result(run_compiled(source, module_name="__main__"), "120TrueFalse")
+
+  def test_nested_call_arguments_evaluate_once_left_to_right(self):
+    helpers = """fungsi tandai(teks) { tampilkan(teks); hasilkan teks; }
+fungsi gabung(a, b) { hasilkan a + b; }
+"""
+
+    for expression in ('gabung(tandai("A"), tandai("B"))', '"${gabung(tandai("A"), tandai("B"))}"'):
+      with self.subTest(expression=expression):
+        source = helpers + f"fungsi utama() {{ tampilkan({expression}); }}"
+        assert_program_result(run_compiled(source, module_name="__main__"), "ABAB")
+
+  def test_interpolation_preserves_escapes_unicode_and_inner_strings(self):
+    source = r'''fungsi identity(value) { hasilkan value; }
+fungsi utama() {
+  variabel value = 3;
+  tampilkan("café ☕ ${value + 1}|\${value}|\\${value}|${identity("}")}|// /* () ,");
+}'''
+
+    assert_program_result(run_compiled(source, module_name="__main__"), "café ☕ 4|${value}|\\3|}|// /* () ,")
+
+  def test_interpolation_positions_use_utf8_byte_columns(self):
+    source = 'fungsi utama() { tampilkan("café ☕ ${1 + 2}"); }'
+    expression_start = source.index("1 + 2")
+    start_column = len(source[:expression_start].encode("utf-8"))
+    end_column = start_column + len("1 + 2")
+    assertions = (
+      f"assert (1, 1, {start_column}, {end_column}) "
+      "in list(namespace['utama'].__code__.co_positions())"
+    )
+
+    assert_program_result(run_compiled(source, assertions), "")
+
+  def test_returning_branch_allows_initialized_fallthrough_local(self):
+    source = """fungsi pilih(flag) {
+  jika (flag) { hasilkan 1; } selainnya { variabel result = 2; }
+  hasilkan result;
+}
+fungsi utama() { tampilkan(pilih(benar), pilih(salah)); }
+"""
+
+    assert_program_result(run_compiled(source, module_name="__main__"), "12")
+
+  def test_default_return_and_boolean_formatting(self):
+    source = 'fungsi empty() {} fungsi utama() { tampilkan("${empty()}|${benar}|${salah}"); }'
+
+    assert_program_result(run_compiled(source, module_name="__main__"), "None|True|False")

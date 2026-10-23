@@ -1,12 +1,12 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import CodeType
 
 from bytecode import BinaryOp, Bytecode, Compare, CompilerFlags, Instr, Intrinsic1Op, Label
 from bytecode.instr import InstrLocation
 
 from pyindo.nodes import (
-  Assignment, Binary, Call, CallStatement, Declaration, Literal, Name,
-  Program, Return, Unary,
+  Assignment, Binary, Call, CallStatement, Declaration, If, InterpolatedString,
+  Literal, Name, Program, Return, Unary,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
 
@@ -28,17 +28,20 @@ class EmissionContext:
   signatures: dict[str, FunctionSignature]
   source_text: str
   filename: str
+  source_lines: list[str] = field(init=False)
+
+  def __post_init__(self):
+    self.source_lines = self.source_text.split("\n")
 
   def instruction(self, name, argument=None, *, span, has_argument=True):
     """
     Convert Unicode character columns into CPython's zero-based UTF-8 columns.
     """
 
-    lines = self.source_text.split("\n")
     location = InstrLocation(
       span.line, span.end_line,
-      len(lines[span.line - 1][:span.column - 1].encode("utf-8")),
-      len(lines[span.end_line - 1][:span.end_column - 1].encode("utf-8")),
+      len(self.source_lines[span.line - 1][:span.column - 1].encode("utf-8")),
+      len(self.source_lines[span.end_line - 1][:span.end_column - 1].encode("utf-8")),
     )
 
     if has_argument:
@@ -60,6 +63,20 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
 
   if isinstance(expression, Name):
     return [instruction("LOAD_FAST_CHECK", expression.identifier)]
+
+  if isinstance(expression, InterpolatedString):
+    instructions = []
+
+    for part in expression.parts:
+      if isinstance(part, str):
+        instructions.append(instruction("LOAD_CONST", part))
+      else:
+        instructions.extend(emit_expression(part, context))
+        instructions.append(instruction("FORMAT_SIMPLE", has_argument=False))
+
+    # Text was decoded by the lexer; only expression results need formatting.
+    instructions.append(instruction("BUILD_STRING", len(expression.parts)))
+    return instructions
 
   if isinstance(expression, Unary):
     instructions = emit_expression(expression.operand, context)
@@ -138,6 +155,32 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
       *instructions,
       context.instruction("RETURN_VALUE", span=statement.span, has_argument=False),
     ]
+
+  if isinstance(statement, If):
+    instructions = []
+    end_label = Label()
+
+    for condition, body in statement.branches:
+      # These destinations belong to this chain, never to a nested condition.
+      next_arm = Label()
+      instructions.extend(emit_expression(condition, context))
+      instructions.extend([
+        context.instruction("TO_BOOL", span=condition.span, has_argument=False),
+        context.instruction("POP_JUMP_IF_FALSE", next_arm, span=condition.span),
+      ])
+
+      for nested_statement in body:
+        instructions.extend(emit_statement(nested_statement, context))
+
+      instructions.extend([
+        context.instruction("JUMP_FORWARD", end_label, span=statement.span), next_arm,
+      ])
+
+    for nested_statement in statement.else_body or []:
+      instructions.extend(emit_statement(nested_statement, context))
+
+    instructions.append(end_label)
+    return instructions
 
   raise TypeError(f"Unknown statement node: {type(statement).__name__}")
 

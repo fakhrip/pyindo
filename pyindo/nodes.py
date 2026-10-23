@@ -163,6 +163,17 @@ class For:
 
 
 @dataclass(frozen=True)
+class ForEach:
+  name: str
+  annotation: TypeAnnotation | None
+  is_constant: bool
+  iterable: Expression
+  body: list["Statement"]
+  span: SourceSpan
+  binding_span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Break:
   span: SourceSpan
 
@@ -174,7 +185,7 @@ class Continue:
 
 type Statement = (
   Declaration | Assignment | AugmentedAssignment | IndexedAssignment | Delete | Return | CallStatement
-  | If | While | For | Break | Continue
+  | If | While | For | ForEach | Break | Continue
 )
 
 

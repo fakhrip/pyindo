@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
-  Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
+  Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
 )
@@ -75,6 +75,9 @@ def _declarations(body):
       if isinstance(statement.initializer, Declaration):
         yield statement.initializer
 
+      yield from _declarations(statement.body)
+    elif isinstance(statement, ForEach):
+      yield statement
       yield from _declarations(statement.body)
     elif isinstance(statement, While):
       yield from _declarations(statement.body)
@@ -238,6 +241,11 @@ class FunctionAnalyzer:
       # This loop consumes its own break/continue exits, including nested ones.
     elif isinstance(statement, For):
       return self.analyze_for(statement, initialized, loop_depth=loop_depth)
+    elif isinstance(statement, ForEach):
+      # The iterable cannot read the as-yet uninitialized iteration binding.
+      self.expression(statement.iterable, initialized)
+      self.block(statement.body, initialized | {statement.name}, loop_depth=loop_depth + 1)
+      # Even a nonempty literal does not establish initialization after the loop.
     else:
       raise TypeError(f"Unknown statement node: {type(statement).__name__}")
 

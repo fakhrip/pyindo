@@ -4,7 +4,7 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
-  Declaration, Delete, For, Function, If, Index, IndexedAssignment, InterpolatedString,
+  Declaration, Delete, For, ForEach, Function, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Parameter, Program, Return, TypeAnnotation, Unary, While,
 )
@@ -219,10 +219,7 @@ class Parser:
       if not allow_declaration:
         raise PyIndoError("Declaration is not allowed in this header slot", opening.span)
 
-      self.advance()
-      name = self.expect_name()
-      self.expect(":")
-      annotation = self.parse_type_annotation()
+      opening, name, annotation = self.parse_binding_header()
       self.expect("=")
       value = self.parse_expression()
       return Declaration(
@@ -323,14 +320,45 @@ class Parser:
 
     return While(condition, body, opening.span.through(closing.span))
 
-  def parse_for(self) -> For:
+  def parse_binding_header(self):
     """
-    Own header delimiters and keep the update distinct from the loop body.
+    Read a declaration prefix once, preserving any split generic closing tokens.
+    """
+
+    opening = self.advance()
+    name = self.expect_name()
+    self.expect(":")
+    return opening, name, self.parse_type_annotation()
+
+  def parse_for(self) -> For | ForEach:
+    """
+    Distinguish iterator and C-style headers without rewinding parsed type tokens.
     """
 
     opening = self.expect("untuk")
     self.expect("(")
-    initializer = None if self.current.text == ";" else self.parse_simple_statement()
+    initializer = None
+
+    if self.current.text in ("variabel", "konstanta"):
+      binding, name, annotation = self.parse_binding_header()
+
+      if self.match("didalam"):
+        iterable = self.parse_expression()
+        self.expect(")")
+        body, closing = self.parse_block()
+        return ForEach(
+          name.text, annotation, binding.text == "konstanta", iterable, body,
+          opening.span.through(closing.span), binding.span.through(annotation.span),
+        )
+
+      self.expect("=")
+      value = self.parse_expression()
+      initializer = Declaration(
+        name.text, value, binding.text == "konstanta", binding.span.through(value.span), annotation,
+      )
+    elif self.current.text != ";":
+      initializer = self.parse_simple_statement()
+
     self.expect(";")
     condition = None if self.current.text == ";" else self.parse_expression()
     self.expect(";")

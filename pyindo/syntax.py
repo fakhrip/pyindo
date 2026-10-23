@@ -20,7 +20,7 @@ BINDING_POWER = {
   "**": (70, 60),
 }
 UNSUPPORTED = {
-  "maka", "cocokkan", "hapus",
+  "cocokkan", "hapus",
   "didalam", ":", "[", "]",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
@@ -220,7 +220,7 @@ class Parser:
       self.expect("(")
       condition = self.parse_expression()
       self.expect(")")
-      body, closing = self.parse_block()
+      body, closing_span = self.parse_if_arm()
       branches.append((condition, body))
 
       if not self.match("selainnya"):
@@ -229,10 +229,30 @@ class Parser:
       if self.match("jika"):
         continue
 
-      else_body, closing = self.parse_block()
+      else_body, closing_span = self.parse_if_arm()
       break
 
-    return If(branches, else_body, opening.span.through(closing.span))
+    return If(branches, else_body, opening.span.through(closing_span))
+
+  def parse_if_arm(self):
+    """
+    Parse braces or one simple maka statement without a dangling-else ambiguity.
+
+    Compound statements need braces; only this enclosing chain may consume
+    a following else arm. Loop bodies keep their separate braced grammar.
+    """
+
+    if self.current.text == "{":
+      body, closing = self.parse_block()
+      return body, closing.span
+
+    self.expect("maka")
+
+    if self.current.text in ("jika", "selama", "untuk", "{"):
+      raise self.expected("simple statement after 'maka'")
+
+    statement = self.parse_statement()
+    return [statement], statement.span
 
   def parse_while(self) -> While:
     """

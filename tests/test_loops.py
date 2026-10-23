@@ -257,3 +257,66 @@ fungsi utama() { tampilkan(probe(benar), probe(salah)); }
 """
 
     assert_program_result(run_source(source), "0010")
+
+  def test_maka_mixed_arms_and_following_statements(self):
+    source = """fungsi pilih(value) {
+  jika (value == 0) maka hasilkan "zero";
+  selainnya jika (value == 1) { hasilkan "one"; }
+  selainnya maka hasilkan "other";
+}
+fungsi utama() {
+  tampilkan(pilih(0), pilih(1), pilih(2));
+  tampilkan("after");
+}
+"""
+
+    assert_program_result(run_source(source), "zerooneotherafter")
+
+  def test_maka_simple_writes_and_declarations_use_existing_semantics(self):
+    source = """fungsi utama() {
+  variabel value = 0;
+  jika (benar) maka value = 2;
+  selainnya maka value = 3;
+  jika (benar) maka value++;
+  jika (benar) maka variabel unused = 4;
+  jika (salah) maka konstanta fixed = 5;
+  tampilkan(value);
+}
+"""
+
+    assert_program_result(run_source(source), "3")
+
+  def test_maka_loop_control_preserves_continue_and_break_targets(self):
+    source = """fungsi update(index) { tampilkan(index); hasilkan index + 1; }
+fungsi utama() {
+  untuk (variabel index = 0; index < 4; index = update(index)) {
+    jika (index < 3) maka lewati;
+    selainnya maka berhenti;
+  }
+  variabel step = 0;
+  selama (step < 4) {
+    step++;
+    jika (step == 1) maka lewati;
+    jika (step == 3) maka berhenti;
+    tampilkan(step);
+  }
+}
+"""
+
+    assert_program_result(run_source(source), "0122")
+
+  def test_maka_requires_one_simple_terminated_statement(self):
+    bodies = [
+      "jika (benar) maka jika (salah) {}", "jika (benar) maka selama (salah) {}",
+      "jika (benar) maka untuk (;;) {}", "jika (benar) maka ;",
+      "jika (benar) maka tampilkan(1)", "selama (salah) maka tampilkan(1);",
+      "untuk (; salah;) maka tampilkan(1);",
+    ]
+
+    for body in bodies:
+      with self.subTest(body=body):
+        with self.assertRaises(PyIndoError):
+          parse_module(f"fungsi utama() {{ {body} }}")
+
+    self.assert_rejected("fungsi utama() { jika (benar) maka berhenti; }")
+    self.assert_rejected("fungsi utama() { jika (benar) maka lewati; }")

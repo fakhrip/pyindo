@@ -373,26 +373,35 @@ def string_to_token(string: str) -> int or str:
 
 
 def error(statement, line_number=None) -> NoReturn:
-    """
-    Show error statement if there are any, including
-    the line number in which the error happened
-    """
+  """
+  Show a syntax diagnostic with its optional source line and exit 70.
 
-    line_number_str = f" (on line number {line_number})" if line_number else ""
-    print(f"\rError: {statement}{line_number_str}", end="")
-    exit(EX_SOFTWARE)
+  Preserve the existing diagnostic text and stdout stream without adding
+  a carriage return that appears as an extra blank line in captured output.
+  """
+
+  line_number_text = f" (on line number {line_number})" if line_number else ""
+  print(f"Error: {statement}{line_number_text}", end="")
+
+  raise SystemExit(EX_SOFTWARE)
 
 
 def compiler_error(statement) -> NoReturn:
-    """
-    Show compiler error statement if there are any
-    """
+  """
+  Show an internal compiler diagnostic and the existing issue-report hint.
 
-    print(
-        f"\r[!] Compiler Error: {statement}\n\n--+--(Please file an issue in the github repository if you found this)\n--+--",
-        end="",
-    )
-    exit(EX_SOFTWARE)
+  Exit with the portable software-error status rather than a platform-only
+  os constant; the caller should not continue after a compilation failure.
+  """
+
+  print(
+    f"[!] Compiler Error: {statement}\n\n"
+    "--+--(Please file an issue in the github repository if you found this)\n"
+    "--+--",
+    end="",
+  )
+
+  raise SystemExit(EX_SOFTWARE)
 
 
 def search(

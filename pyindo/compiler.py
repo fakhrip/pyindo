@@ -374,6 +374,22 @@ def define_function_wrapper(
     return (bytecodes, define_function_tail(is_entrypoint_function))
 
 
+def _set_code_filename(code: CodeType, filename: str) -> CodeType:
+  """
+  Propagate source identity through nested code constants for diagnostics.
+
+  replace() changes only metadata and nested constants; the assembler still
+  owns all bytecode encoding, jump resolution, and stack calculations.
+  """
+
+  constants = tuple(
+    _set_code_filename(value, filename) if isinstance(value, CodeType) else value
+    for value in code.co_consts
+  )
+
+  return code.replace(co_filename=filename, co_consts=constants)
+
+
 def compile_bytecodes(
   bytecodes: list,
   *,
@@ -388,7 +404,14 @@ def compile_bytecodes(
   """
 
   ensure_supported_runtime()
-  instructions = list(bytecodes)
+  instructions = []
+
+  for instruction in bytecodes:
+    if isinstance(instruction, Instr) and isinstance(instruction.arg, CodeType):
+      instruction = instruction.copy()
+      instruction.arg = _set_code_filename(instruction.arg, filename)
+
+    instructions.append(instruction)
 
   if not instructions or not isinstance(instructions[0], Instr) or instructions[0].name != "RESUME":
     instructions.insert(0, Instr("RESUME", 0, lineno=1))

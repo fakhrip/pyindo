@@ -4,7 +4,7 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, Function, If, InterpolatedString, Literal, Logical, Name,
+  Declaration, For, Function, If, InterpolatedString, Literal, Logical, Name,
   Parameter, Program, Return, Unary, While,
 )
 
@@ -20,7 +20,7 @@ BINDING_POWER = {
   "**": (70, 60),
 }
 UNSUPPORTED = {
-  "maka", "untuk", "cocokkan", "hapus",
+  "maka", "cocokkan", "hapus",
   "didalam", ":", "[", "]",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
@@ -145,6 +145,9 @@ class Parser:
     if opening.text == "selama":
       return self.parse_while()
 
+    if opening.text == "untuk":
+      return self.parse_for()
+
     if opening.text in ("berhenti", "lewati"):
       self.advance()
       closing = self.expect(";")
@@ -243,6 +246,26 @@ class Parser:
     body, closing = self.parse_block()
 
     return While(condition, body, opening.span.through(closing.span))
+
+  def parse_for(self) -> For:
+    """
+    Own header delimiters and keep the update distinct from the loop body.
+    """
+
+    opening = self.expect("untuk")
+    self.expect("(")
+    initializer = None if self.current.text == ";" else self.parse_simple_statement()
+    self.expect(";")
+    condition = None if self.current.text == ";" else self.parse_expression()
+    self.expect(";")
+    update = (
+      None if self.current.text == ")"
+      else self.parse_simple_statement(allow_declaration=False)
+    )
+    self.expect(")")
+    body, closing = self.parse_block()
+
+    return For(initializer, condition, update, body, opening.span.through(closing.span))
 
   def parse_expression(self, minimum_power: int = 0):
     """

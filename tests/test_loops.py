@@ -104,3 +104,156 @@ fungsi utama() { tampilkan(probe()); }
       with self.subTest(body=body):
         with self.assertRaises(PyIndoError):
           parse_module(f"fungsi utama() {{ {body} }}")
+
+  def test_for_header_slots_are_optional_but_separators_are_required(self):
+    for initializer in ("", "variabel index = 0"):
+      for condition in ("", "benar"):
+        for update in ("", "index++"):
+          source = f"fungsi utama() {{ untuk ({initializer}; {condition}; {update}) {{}} }}"
+          node = parse_module(source).functions[0].body[0]
+
+          self.assertEqual(node.initializer is None, initializer == "")
+          self.assertEqual(node.condition is None, condition == "")
+          self.assertEqual(node.update is None, update == "")
+
+    for header in ("variabel index = 0 index < 2; index++", ";; variabel index = 1", "variabel index: desimal = 0;;", ";; index++, index++"):
+      with self.subTest(header=header):
+        with self.assertRaises(PyIndoError):
+          parse_module(f"fungsi utama() {{ untuk ({header}) {{}} }}")
+
+  def test_for_execution_order_and_zero_iterations(self):
+    for initial, expected in ((0, "ICBUCBUCA"), (2, "ICA")):
+      with self.subTest(initial=initial):
+        source = f"""fungsi mark(text) {{ tampilkan(text); }}
+fungsi condition(index) {{ tampilkan("C"); hasilkan index < 2; }}
+fungsi update(index) {{ tampilkan("U"); hasilkan index + 1; }}
+fungsi utama() {{
+  variabel index = {initial};
+  untuk (mark("I"); condition(index); index = update(index)) {{ mark("B"); }}
+  mark("A");
+}}"""
+
+        assert_program_result(run_source(source), expected)
+
+  def test_for_continue_runs_update_once(self):
+    source = """fungsi update(index) { tampilkan(index); hasilkan index + 1; }
+fungsi utama() {
+  untuk (variabel index = 0; index < 4; index = update(index)) { lewati; }
+}
+"""
+
+    assert_program_result(run_source(source), "0123")
+
+  def test_for_break_and_return_skip_update(self):
+    source = """fungsi update() { tampilkan("unexpected"); }
+fungsi probe() { untuk (;;) { hasilkan 7; } }
+fungsi utama() {
+  untuk (;; update()) { berhenti; }
+  tampilkan(probe());
+}
+"""
+
+    assert_program_result(run_source(source), "7")
+
+  def test_for_initializer_is_visible_after_zero_iterations(self):
+    source = "fungsi utama() { untuk (variabel index = 0; salah; index++) {} tampilkan(index); }"
+
+    assert_program_result(run_source(source), "0")
+    self.assert_rejected("fungsi utama() { untuk (index = 0; salah;) {} }")
+    self.assert_rejected("fungsi utama() { untuk (variabel index = index; salah;) {} }")
+    self.assert_rejected("fungsi utama() { variabel index = 0; untuk (variabel index = 0; salah;) {} }")
+    self.assert_rejected("fungsi utama() { untuk (variabel index = 0; salah;) { variabel index = 1; } }")
+    self.assert_rejected("fungsi utama() { untuk (;;) { variabel value = 1; berhenti; } tampilkan(value); }")
+
+  def test_empty_continue_state_is_a_real_update_path(self):
+    source = """fungsi utama() {
+  untuk (; salah; value++) {
+    jika (benar) { lewati; }
+    variabel value = 0;
+  }
+}"""
+
+    with self.assertRaisesRegex(PyIndoError, "not initialized"):
+      analyze_program(parse_module(source))
+
+  def test_dead_declarations_cannot_authorize_a_live_update(self):
+    source = """fungsi probe(flag) {
+  untuk (variabel index = 0; index < 1; index += step) {
+    jika (flag) { lewati; } selainnya { hasilkan; }
+    variabel step = 1;
+  }
+}
+fungsi utama() {}
+"""
+
+    with self.assertRaisesRegex(PyIndoError, "not initialized"):
+      analyze_program(parse_module(source))
+
+  def test_dead_nested_continues_do_not_poison_update_joins(self):
+    source = """fungsi probe(flag) {
+  untuk (variabel index = 0; index < 1; index += step) {
+    jika (flag) {
+      hasilkan 8;
+      jika (benar) { lewati; } selainnya { lewati; }
+    }
+    variabel step = 1;
+  }
+  hasilkan 9;
+}
+fungsi utama() { tampilkan(probe(salah), probe(benar)); }
+"""
+
+    assert_program_result(run_source(source), "98")
+
+  def test_breaking_paths_do_not_weaken_live_update_initialization(self):
+    source = """fungsi probe(flag) {
+  untuk (variabel index = 0; index < 1; index += step) {
+    jika (flag) { berhenti; }
+    variabel step = 1;
+  }
+  hasilkan 9;
+}
+fungsi utama() { tampilkan(probe(benar), probe(salah)); }
+"""
+
+    assert_program_result(run_source(source), "99")
+
+  def test_unreachable_update_uses_diagnostic_cursor_and_checks_constants(self):
+    source = """fungsi utama() {
+  untuk (variabel index = 0; index < 1; index += step) {
+    berhenti;
+    variabel step = 1;
+  }
+  tampilkan("A");
+}
+"""
+
+    assert_program_result(run_source(source), "A")
+    self.assert_rejected("fungsi utama() { untuk (konstanta limit = 2; benar; limit++) { berhenti; } }")
+
+  def test_inner_loop_exits_do_not_escape_to_outer_update(self):
+    source = """fungsi utama() {
+  untuk (variabel index = 0; index < 1; index += step) {
+    selama (salah) { lewati; }
+    selama (benar) { berhenti; }
+    variabel step = 1;
+  }
+  tampilkan(index);
+}
+"""
+
+    assert_program_result(run_source(source), "1")
+
+  def test_nested_for_continue_targets_its_own_update(self):
+    source = """fungsi utama() {
+  untuk (variabel outer = 0; outer < 2; outer++) {
+    untuk (variabel inner = 0; inner < 3; inner++) {
+      jika (inner == 1) { lewati; }
+      jika (inner == 2) { berhenti; }
+      tampilkan(outer, inner);
+    }
+  }
+}
+"""
+
+    assert_program_result(run_source(source), "0010")

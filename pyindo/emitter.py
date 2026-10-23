@@ -7,7 +7,7 @@ from bytecode.instr import InstrLocation
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
+  Declaration, For, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
 
@@ -195,6 +195,34 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
       ),
       context.instruction("JUMP_BACKWARD", condition_label, span=statement.span), exit_label,
     ]
+
+  if isinstance(statement, For):
+    condition_label, update_label, exit_label = Label(), Label(), Label()
+    instructions = (
+      emit_statement(statement.initializer, context) if statement.initializer is not None else []
+    )
+    instructions.append(condition_label)
+
+    if statement.condition is not None:
+      instructions.extend([
+        *emit_expression(statement.condition, context),
+        context.instruction("TO_BOOL", span=statement.condition.span, has_argument=False),
+        context.instruction("POP_JUMP_IF_FALSE", exit_label, span=statement.condition.span),
+      ])
+
+    instructions.extend(emit_loop_body(
+      statement.body, context, LoopTargets(exit_label, update_label, "JUMP_FORWARD"),
+    ))
+    # Continue reaches this update exactly once; break and return skip it.
+    instructions.append(update_label)
+
+    if statement.update is not None:
+      instructions.extend(emit_statement(statement.update, context))
+
+    instructions.extend([
+      context.instruction("JUMP_BACKWARD", condition_label, span=statement.span), exit_label,
+    ])
+    return instructions
 
   if isinstance(statement, CallStatement):
     return [

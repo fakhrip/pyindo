@@ -101,7 +101,7 @@ fungsi utama() { hasilkan; }
   def test_invalid_or_unsupported_syntax_is_located(self):
     sources = [
       "fungsi utama() { jika () {} }", "fungsi utama() { tampilkan(1) }",
-      "fungsi utama(a: desimal) {}", "fungsi utama() { untuk (;;) {} }",
+      "fungsi utama(a: desimal) {}", "fungsi utama() { untuk (variabel i: desimal = 0;;) {} }",
       "fungsi utama() { hasilkan 1 && ; }", "fungsi utama() { x += ; }",
       "fungsi utama() { jika (benar) maka tampilkan(1); }",
       'fungsi utama() { tampilkan("${}"); }', "fungsi utama() {} extra",

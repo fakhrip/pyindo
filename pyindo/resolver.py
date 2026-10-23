@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
+  Declaration, For, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
 )
 
 
@@ -60,6 +60,11 @@ def _declarations(body):
 
       if statement.else_body is not None:
         yield from _declarations(statement.else_body)
+    elif isinstance(statement, For):
+      if isinstance(statement.initializer, Declaration):
+        yield statement.initializer
+
+      yield from _declarations(statement.body)
     elif isinstance(statement, While):
       yield from _declarations(statement.body)
 
@@ -185,6 +190,8 @@ class FunctionAnalyzer:
       self.block(statement.body, initialized, loop_depth=loop_depth + 1)
       # A possible zero-iteration path retains only incoming initialization.
       # This loop consumes its own break/continue exits, including nested ones.
+    elif isinstance(statement, For):
+      return self.analyze_for(statement, initialized, loop_depth=loop_depth)
     else:
       raise TypeError(f"Unknown statement node: {type(statement).__name__}")
 
@@ -216,6 +223,34 @@ class FunctionAnalyzer:
       result.continues = _meet_exit_states(result.continues, branch.continues)
 
     return result
+
+  def analyze_for(self, statement: For, initialized: set[str], *, loop_depth: int) -> FlowResult:
+    """
+    Check an update against exactly the body routes that can reach it.
+
+    Breaks and returns skip updates. An empty continue set still represents
+    a real route and must never be replaced using a truthiness fallback.
+    """
+
+    if statement.initializer is not None:
+      initialized = self.statement(
+        statement.initializer, initialized, loop_depth=loop_depth,
+      ).initialized
+
+    if statement.condition is not None:
+      self.expression(statement.condition, initialized)
+
+    body_flow = self.block(statement.body, initialized, loop_depth=loop_depth + 1)
+    update_state = body_flow.initialized if body_flow.falls_through else None
+    update_state = _meet_exit_states(update_state, body_flow.continues)
+
+    if statement.update is not None:
+      # With no live route, preserve source-order checks without inventing one.
+      diagnostic_state = body_flow.initialized if update_state is None else update_state
+      self.statement(statement.update, diagnostic_state, loop_depth=loop_depth)
+
+    # Initializer runs once; neither a body nor an update is assumed to run.
+    return FlowResult(set(initialized), True)
 
 
 def _analyze_program(program: Program) -> ProgramSymbols:

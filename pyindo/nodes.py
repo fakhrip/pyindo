@@ -104,6 +104,15 @@ class While:
 
 
 @dataclass(frozen=True)
+class For:
+  initializer: "Statement | None"
+  condition: Expression | None
+  update: "Statement | None"
+  body: list["Statement"]
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Break:
   span: SourceSpan
 
@@ -113,7 +122,10 @@ class Continue:
   span: SourceSpan
 
 
-type Statement = Declaration | Assignment | AugmentedAssignment | Return | CallStatement | If | While | Break | Continue
+type Statement = (
+  Declaration | Assignment | AugmentedAssignment | Return | CallStatement
+  | If | While | For | Break | Continue
+)
 
 
 @dataclass(frozen=True)

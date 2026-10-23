@@ -4,7 +4,7 @@ from types import CodeType
 from bytecode import BinaryOp, Bytecode, Compare, CompilerFlags, Instr, Intrinsic1Op, Label
 from bytecode.instr import InstrLocation
 
-from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
+from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
   Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
@@ -12,9 +12,11 @@ from pyindo.nodes import (
   Program, Return, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
+from pyindo.types import TypeSpec
 
 
-FREEZE_CONSTANT_NAME = "<pyindo:freeze_constant>"
+PREPARE_VALUE_NAME = "<pyindo:prepare_typed_value>"
+PREPARE_CONSTANT_NAME = "<pyindo:prepare_typed_constant>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -232,24 +234,48 @@ def emit_truth_jump(
   return instructions
 
 
+def emit_type_guard(
+  value_instructions: list[Instr | Label], type_spec: TypeSpec,
+  error_context: str, context: EmissionContext, span: SourceSpan, *,
+  is_constant: bool = False,
+) -> list[Instr | Label]:
+  """
+  Wrap a single evaluated result in a marshal-safe three-argument contract call.
+  """
+
+  helper = PREPARE_CONSTANT_NAME if is_constant else PREPARE_VALUE_NAME
+  return [
+    context.instruction("LOAD_GLOBAL", (True, helper), span=span),
+    *value_instructions,
+    context.instruction("LOAD_CONST", type_spec, span=span),
+    context.instruction("LOAD_CONST", error_context, span=span),
+    context.instruction("CALL", 3, span=span),
+  ]
+
+
+def _contract_context(kind: str, name: str, context: EmissionContext, span: SourceSpan) -> str:
+  """
+  Retain the source boundary in errors, including later mutations through aliases.
+  """
+
+  return f"{kind} '{name}' of '{context.scope.name}' on line {span.line}"
+
+
 def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
   """
   Emit a stack-neutral statement, or terminate the current frame with a return.
   """
 
-  if isinstance(statement, Declaration) and statement.is_constant:
-    # Snapshot before binding: later aliases can never mutate constant contents.
-    return [
-      context.instruction("LOAD_GLOBAL", (True, FREEZE_CONSTANT_NAME), span=statement.span),
-      *emit_expression(statement.value, context),
-      context.instruction("CALL", 1, span=statement.span),
-      context.instruction("STORE_FAST", statement.name, span=statement.span),
-    ]
-
   if isinstance(statement, (Declaration, Assignment)):
     name = statement.name if isinstance(statement, Declaration) else statement.target
+    is_constant = isinstance(statement, Declaration) and statement.is_constant
+    prepared = emit_type_guard(
+      emit_expression(statement.value, context), context.scope.binding_types.get(name, "apapun"),
+      _contract_context("binding", name, context, statement.span), context, statement.span,
+      is_constant=is_constant,
+    )
     return [
-      *emit_expression(statement.value, context),
+      *prepared,
       context.instruction("STORE_FAST", name, span=statement.span),
     ]
 
@@ -271,10 +297,16 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
 
   if isinstance(statement, AugmentedAssignment):
     # Read before the RHS and rebind; postfix syntax leaves no old/new value.
-    return [
+    computed = [
       context.instruction("LOAD_FAST_CHECK", statement.target, span=statement.span),
       *emit_expression(statement.value, context),
       context.instruction("BINARY_OP", BINARY_OPERATIONS[statement.operator], span=statement.span),
+    ]
+    return [
+      *emit_type_guard(
+        computed, context.scope.binding_types.get(statement.target, "apapun"),
+        _contract_context("binding", statement.target, context, statement.span), context, statement.span,
+      ),
       context.instruction("STORE_FAST", statement.target, span=statement.span),
     ]
 
@@ -338,7 +370,10 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
       else [context.instruction("LOAD_CONST", None, span=statement.span)]
     )
     return [
-      *instructions,
+      *emit_type_guard(
+        instructions, context.scope.return_type,
+        _contract_context("return", context.scope.name, context, statement.span), context, statement.span,
+      ),
       context.instruction("RETURN_VALUE", span=statement.span, has_argument=False),
     ]
 
@@ -397,10 +432,23 @@ def compile_function(function, scope, *, signatures, source_text, filename) -> C
   context = EmissionContext(scope, signatures, source_text, filename)
   instructions = [Instr("RESUME", 0, lineno=function.span.line)]
 
+  # All caller arguments already exist before the first parameter is checked.
+  for parameter in function.parameters:
+    instructions.extend(emit_type_guard(
+      [context.instruction("LOAD_FAST_CHECK", parameter.name, span=parameter.span)],
+      scope.binding_types[parameter.name],
+      _contract_context("parameter", parameter.name, context, parameter.span), context, parameter.span,
+    ))
+    instructions.append(context.instruction("STORE_FAST", parameter.name, span=parameter.span))
+
   for statement in function.body:
     instructions.extend(emit_statement(statement, context))
 
-  instructions.extend([Instr("LOAD_CONST", None), Instr("RETURN_VALUE")])
+  instructions.extend(emit_type_guard(
+    [context.instruction("LOAD_CONST", None, span=function.span)], scope.return_type,
+    _contract_context("return", function.name, context, function.span), context, function.span,
+  ))
+  instructions.append(context.instruction("RETURN_VALUE", span=function.span, has_argument=False))
   bytecode = Bytecode(instructions)
   bytecode.flags = CompilerFlags.OPTIMIZED | CompilerFlags.NEWLOCALS
   bytecode.argcount = len(scope.parameters)
@@ -423,14 +471,18 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
   symbols = analyze_program(program)
   instructions = [Instr("RESUME", 0, lineno=1)]
 
+  helpers = [("prepare_typed_value", PREPARE_VALUE_NAME)]
   if any(scope.constant_names for scope in symbols.scopes.values()):
+    helpers.append(("prepare_typed_constant", PREPARE_CONSTANT_NAME))
+
+  for helper_name, global_name in helpers:
     # An impossible source identifier avoids collisions and caller-side injection.
     instructions.extend([
       Instr("LOAD_CONST", 0, lineno=1),
-      Instr("LOAD_CONST", ("freeze_constant_value",), lineno=1),
-      Instr("IMPORT_NAME", (False, False, "pyindo.values"), lineno=1),
-      Instr("IMPORT_FROM", "freeze_constant_value", lineno=1),
-      Instr("STORE_NAME", FREEZE_CONSTANT_NAME, lineno=1),
+      Instr("LOAD_CONST", (helper_name,), lineno=1),
+      Instr("IMPORT_NAME", (False, False, "pyindo.type_checks"), lineno=1),
+      Instr("IMPORT_FROM", helper_name, lineno=1),
+      Instr("STORE_NAME", global_name, lineno=1),
       Instr("POP_TOP", lineno=1),
     ])
 

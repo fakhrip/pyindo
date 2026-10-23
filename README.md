@@ -58,16 +58,19 @@ You can find all program examples of pyindo language in the [`tests/`](./tests/)
 
 ## Current implementation status
 
-Milestone 2 implements the core language on CPython 3.15. The larger typed v1
-example below remains a roadmap. The supported subset is untyped:
+Milestone 3 adds structured control flow to the core language on CPython 3.15.
+The larger typed v1 example below remains a roadmap. The supported subset is untyped:
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
 | Function-local `variabel`, `konstanta`, and mutable reassignment | Module variables, closures, and nested functions |
 | Positional parameters, nested call expressions, forward calls, and recursion | Typed/default/keyword/variadic parameters and first-class functions |
 | Real `hasilkan` values, early returns, and implicit `None` on fallthrough | Program arguments and entrypoint-selected process exit status |
-| Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons, short-circuit Boolean operators, and logical negation |
-| Nested braced `jika` / `selainnya jika` / `selainnya` chains | `maka` shorthand, loops, break/continue, and conditional expressions |
+| Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place mutation |
+| Lazy `dan`/`&&`, `atau`/`||`, and logical `tidak`/`!` | Assignment expressions and conditional expressions |
+| Nested conditions and single-statement `maka` arms | Unbraced compound arms and optional statement semicolons |
+| Braced `selama` and C-style `untuk`, `berhenti`, and `lewati` | Iterator/range loops and loop-else |
+| Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and attribute/index targets |
 | Unicode strings, escapes, `${expression}`, and outside-string comments | Multiline strings, collections/indexing/deletion, imports, and type checking |
 
 ```pyindo
@@ -112,6 +115,75 @@ starting with a letter or underscore; strings can contain Unicode. Keywords
 are complete words. Functions cannot be named `tampilkan`, `print`, `__name__`,
 `__file__`, or `__builtins__`, which are reserved for printing/module execution.
 
+### Control flow
+
+```pyindo
+fungsi utama() {
+  variabel total = 0;
+
+  untuk (variabel angka = 0; angka < 6; angka++) {
+    jika (angka adalah 2) maka lewati;
+    jika (angka adalah 5) maka berhenti;
+    total += angka;
+  }
+
+  variabel sisa = 2;
+
+  selama (sisa > 0 dan total > 0) {
+    sisa -= 1;
+  }
+
+  cetak(total);
+}
+
+fungsi cetak(nilai) {
+  tampilkan(nilai);
+}
+```
+
+This prints `8`. `selama (condition) { ... }` checks its condition before each
+iteration. `untuk (initializer; condition; update) { ... }` executes its
+initializer once, checks the condition before each iteration, and executes the
+update after each completed body. Each header slot can be omitted; an omitted
+condition means true. Both header semicolons and loop-body braces are required.
+New header bindings need `variabel` or `konstanta`; bare assignments update an
+existing initialized name. Initializers can also be updates or calls; update
+slots permit assignments, updates, or calls, with one statement per slot.
+
+`berhenti;` exits the innermost loop. `lewati;` rechecks a while condition, or
+runs a for update exactly once before the next condition. Break and function
+return skip that update. Loop controls outside a loop are compile errors.
+
+`dan`/`&&` and `atau`/`||` evaluate left to right and skip unnecessary RHS
+effects. They return the selected operand: `0 dan 7` is `0`, `1 dan 7` is `7`,
+and `"" atau "cadangan"` is `"cadangan"`. `tidak`/`!` return exact Booleans.
+From low to high, precedence is `atau`, `dan`, `tidak`, comparisons, then the
+existing bitwise/arithmetic operators. Aliases share precedence: `!a == b`
+means `!(a == b)`. Parenthesize negation in arithmetic/comparison operands,
+such as `1 == (!salah)`. Both logical operands still receive static name,
+arity, and initialization checks even when one would be skipped at runtime.
+
+`+= -= *= /= %= **= &= |= <<= >>=` read an initialized mutable name, evaluate
+the RHS once, perform ordinary arithmetic/bitwise rebinding, and store the
+result. `name++;` and `name--;` are statement-only updates by 1. Constants
+cannot be targets. Updates are not expressions or implicit declarations.
+
+Loops retain function scope. A header initializer can initialize a name used
+after the loop, including after zero iterations. Body declarations cannot
+establish post-loop initialization; analysis does not assume an iteration even
+for a literal-true or omitted condition. A body-local used by a for update must
+be initialized on every fallthrough/continue route reaching that update.
+Breaking/returning routes are excluded. One declaration may run its initializer
+on repeated iterations, including a constant declaration; separate duplicate
+source declarations and explicit writes to constants remain errors.
+
+`maka` replaces braces around exactly one simple semicolon-terminated
+conditional-arm statement: a declaration, assignment/update, call, return,
+break, or continue. It also works for `selainnya jika` and `selainnya maka`.
+Compound if/loop arms and all loop bodies require braces. The typed v1 header,
+collections, `tidak kosong`, multiline strings, and conditional expressions
+remain future work.
+
 `python test.py` uses standard-library `unittest`. It fails on mismatched output,
 unexpected exit status/stderr, orphaned fixtures, or a subprocess timeout.
 Expected output retains significant whitespace.
@@ -119,9 +191,10 @@ Expected output retains significant whitespace.
 All 19 original fixtures are checked: 11 success examples and eight expected
 syntax errors. `simple_math.pyind` now prints its complete message ending in
 `180.0`, reflecting true division. Additional tests cover actual return values,
-early exits, local scopes, initialization, recursion, nested conditions, source
-positions, and malformed input. Newly assembled bytecode executes in test
-subprocesses so a backend failure cannot terminate the test runner itself.
+early exits, local scopes, initialization, recursion, nested conditions, lazy
+logic, loop/update order, source positions, and malformed input. Newly assembled
+bytecode executes in test subprocesses so a backend failure cannot terminate the
+test runner itself.
 
 ## Language specificaton
 
@@ -212,7 +285,7 @@ There are no ternary operator in this language, and instead, we follow the pytho
 tampilkan("apakah 1 sama dengan 1 ? ${'ya' jika 1 adalah 1 selainnya 'tidak'}")
 ```
 
-### Planned syntactic sugar
+### Single-statement condition arms
 
 There are some of syntatic sugar which one can use to be able to use this language in a more comfortable way such as:
 
@@ -225,7 +298,7 @@ There are some of syntatic sugar which one can use to be able to use this langua
     Instead of this one  
     ```pyindo
     jika(1 adalah 1) {
-        tampilkan("satu adalah satu :D")
+      tampilkan("satu adalah satu :D");
     }
     ```
 

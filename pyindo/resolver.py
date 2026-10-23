@@ -51,6 +51,10 @@ def _meet_exit_states(current: set[str] | None, incoming: set[str] | None) -> se
 
 
 def _declarations(body):
+  """
+  Walk source bindings once, including loop headers, in function-local order.
+  """
+
   for statement in body:
     if isinstance(statement, Declaration):
       yield statement

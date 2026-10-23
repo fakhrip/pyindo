@@ -8,6 +8,23 @@ from pyindo.runtime import ensure_supported_runtime
 import re
 import codecs
 
+from pyindo.emitter import compile_program
+
+
+def compile_source(source_text: str, *, filename: str = "<pyindo>") -> CodeType:
+  """
+  Compile source through syntax, semantic analysis, and the CPython 3.15 emitter.
+
+  Check the target runtime before parsing or assembling; user-facing errors
+  remain structured until the CLI or legacy parser facade renders them.
+  """
+
+  ensure_supported_runtime()
+
+  from pyindo.syntax import parse_module
+
+  return compile_program(parse_module(source_text), filename=filename).to_code()
+
 
 def decode_escapes(s):
     ESCAPE_SEQUENCE_RE = re.compile(

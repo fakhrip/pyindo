@@ -65,6 +65,8 @@ strings, conditional expressions, typed program arguments, and CLI exit codes.
 Mandatory annotations and checked collection contracts remain enforced.
 Milestone 7 adds typed iterator loops over strings, collections, and iterable
 values supplied by an embedding Python program.
+Milestone 8 adds local `.pyind` modules with named imports, aliases, and namespace
+calls while retaining each file's own function globals and type contracts.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
@@ -80,7 +82,8 @@ values supplied by an embedding Python program.
 | Deeply immutable detached constant snapshots | Freezing arbitrary foreign Python objects |
 | `didalam` membership and contextual `tidak kosong` predicates | Infix `tidak didalam` and chained predicates |
 | Mandatory annotations, checked list copies, and runtime type contracts | General static expression inference and user-defined types |
-| Unicode/multiline strings, escapes, `${expression}`, and comments | Imports and raw/byte string prefixes |
+| Unicode/multiline strings, escapes, `${expression}`, and comments | Raw/byte string prefixes |
+| Local file imports, aliases, typed imported functions, and namespace calls | Packages, reexports, wildcard/Python imports, and general attribute access |
 
 ```pyindo
 fungsi utama(): kosong {
@@ -253,8 +256,64 @@ variables updated by the body remain available after the loop.
 
 The CLI treats noniterables, iterator failures, and item contract failures as
 ordinary runtime errors. Embedding callers can supply other Python iterables
-through `apapun`; their iterator protocol is preserved. Named imports, range
+through `apapun`; their iterator protocol is preserved. Range
 helpers, target unpacking, and loop-else remain future work.
+
+### Modules and imports
+
+Put reusable functions in a `.pyind` file. For example, save this as `hitung.pyind`:
+
+```pyindo
+fungsi jumlah(a: desimal, b: desimal): desimal {
+  hasilkan a + b;
+}
+
+fungsi kali(a: desimal, b: desimal): desimal {
+  hasilkan a * b;
+}
+```
+
+Save this next to it as `main.pyind`, then run `python main.py main.pyind`:
+
+```pyindo
+dari "hitung.pyind" impor jumlah sebagai total;
+impor "hitung.pyind" sebagai hitung;
+
+fungsi utama(): kosong {
+  tampilkan("jumlah: ", total(2, 3), "|", hitung.kali(3, 4));
+}
+```
+
+This prints `jumlah: 5|12`. Named imports accept several functions separated by
+commas, each with an optional `sebagai` alias. Namespace imports require an alias
+and allow calls such as `hitung.jumlah(2, 3)`. Qualified access currently supports
+one namespace and a function call. Import words remain contextual identifiers.
+Imports belong at module level and require literal paths and semicolons.
+
+Paths resolve relative to the importing file, including imports inside libraries.
+Use `/` for portable subdirectory paths. Missing/unreadable files, invalid UTF-8,
+cycles, unknown exports, alias conflicts, and incorrect call arity are compiler
+errors with source locations. Supplied root source text is authoritative.
+
+A library may omit `utama`. If it declares one, that function remains an ordinary
+typed function and runs only when explicitly called. The entry file must define
+its own `utama`; imported functions cannot supply it implicitly. Every directly
+declared library function is available for explicit import, including underscore
+names. Imported functions are not automatically reexported; define a wrapper to
+expose composed behavior. Import aliases cannot collide with functions, local
+bindings, reserved module names, or `utama`.
+
+Imported functions keep their defining module's globals, annotations, checked-list
+copies, and constant snapshots. Two libraries can have helpers with the same name.
+All dependencies are compiled and validated before execution. Each canonical file
+has one module instance per execution, shared by diamond imports. Executing the
+compiled program again creates fresh modules; PyIndo does not use `sys.modules`
+as a source-module cache.
+
+Compiled code includes its dependencies, so marshal round trips can run after the
+source files are removed. `-D` includes dependency functions and their original
+filenames. Runtime errors still produce normal tracebacks/status 1; imported code
+does not change the entry file's argv or selected process status.
 
 ### Mandatory types
 
@@ -570,7 +629,7 @@ The main reason behind this creation is just to learn and explore how to build a
 These are the steps of the compilation process:
 
 1. Tokenize the source with character-based locations, then parse a small AST.
-2. Resolve typed signatures and bindings; check arity, constants, initialization, and return paths.
+2. Resolve the local import graph and typed signatures/bindings; check arity, constants, initialization, and return paths.
 3. Emit CPython 3.15 instructions with runtime type contracts and assemble them with [bytecode](https://github.com/MatthieuDartiailh/bytecode).
 
 The compiler generates bytecode directly. Source locations are converted to
@@ -578,13 +637,19 @@ UTF-8 byte columns when attached to executable instructions.
 
 For embedding, `pyindo.compiler.compile_source(source_text, filename=...)`
 returns a Python code object and raises `PyIndoError` for source errors.
+Use a real source `filename` to anchor imports. Synthetic filenames such as
+`<pyindo>` resolve imports from the current directory. Dependency code and source
+metadata are bundled into the root code object, with fresh namespaces on execution.
 Exceptionally deep nesting or expressions that exceed the compiler's recursive
 traversal capacity receive a located complexity-limit diagnostic.
 
-`pyindo.parser.parse_program(source_text)` is the compatibility interface:
+`pyindo.parser.parse_program(source_text, filename=...)` is the compatibility interface:
 it returns `(module_instructions, function_code_objects)` and accepts one
 optional final NUL sentinel. Its error contract remains printing a diagnostic
-and raising `SystemExit(70)`. New callers should use `compile_source`.
+and raising `SystemExit(70)`. Its optional keyword-only filename anchors imports;
+the returned function-code list contains only root functions. A subsequent
+`compile_bytecodes(..., filename=...)` override changes root metadata while keeping
+dependency filenames intact. New callers should use `compile_source`.
 
 And then we can execute the compiled bytecode using python [exec](https://docs.python.org/3/library/functions.html#exec) function (maybe we can also create a custom interpreter (as a replacement of CPython) of our own later when we have enough guts to work on that part :D).
 

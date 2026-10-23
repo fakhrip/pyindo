@@ -72,6 +72,24 @@ fungsi utama(): kosong {}
       if status:
         self.assertIn("TypeError", result.stderr)
 
+  def test_interpolated_conditional_positions_use_original_utf8_columns(self):
+    source = '''fungsi one(): desimal { hasilkan 1; }
+fungsi two(): desimal { hasilkan 2; }
+fungsi choose(flag: logika): campuran { hasilkan "café ☕ ${one() jika flag selainnya two()}"; }
+fungsi utama(): kosong {}
+'''
+    expression = parse_module(source).functions[2].body[0].value.parts[1]
+    self.assertEqual(source[expression.span.start:expression.span.end], "one() jika flag selainnya two()")
+    assertions = """import dis
+function = namespace['choose']
+assert function(True) == 'café ☕ 1' and function(False) == 'café ☕ 2'
+""" + f"line = {source.splitlines()[2]!r}\n" + """for item in dis.get_instructions(function):
+  if item.opname == 'LOAD_GLOBAL' and item.argval in ('one', 'two'):
+    assert item.positions.lineno == 3
+    assert item.positions.col_offset == len(line[:line.index(item.argval + '()')].encode('utf-8'))
+"""
+    assert_program_result(run_compiled(source, assertions), "")
+
   def test_nested_stack_joins(self):
     source = """fungsi combine(a: desimal, b: desimal): desimal { hasilkan a + b; }
 fungsi value(flag: logika): campuran {
@@ -94,6 +112,19 @@ fungsi utama(): kosong { tampilkan(value(benar), "/", value(salah)); }
       ("a jika (b jika c selainnya d) selainnya e", "a if (b if c else d) else e"),
       ("tidak (a dan b) jika c selainnya d", "not (a and b) if c else d"),
       ("d jika c selainnya a dan b", "d if c else a and b"),
+      # A false arm can pass its known truth directly to an outer logical test.
+      ("(d jika c selainnya a dan b) atau e", "(d if c else a and b) or e"),
+      ("(d jika c selainnya a dan b) dan e", "(d if c else a and b) and e"),
+      ("(d jika c selainnya b atau a) atau e", "(d if c else b or a) or e"),
+      ("(d jika c selainnya b atau a) dan e", "(d if c else b or a) and e"),
+      ("tidak ((d jika c selainnya b atau a) atau e)", "not ((d if c else b or a) or e)"),
+      # Nested joins must retain the same distinction for each selected arm.
+      ("((a dan b jika c selainnya d) jika c selainnya b atau a) atau e",
+       "((a and b if c else d) if c else b or a) or e"),
+      ("(d jika c selainnya a jika c selainnya b atau a) dan e",
+       "(d if c else a if c else b or a) and e"),
+      ("(a atau (d jika c selainnya b atau a)) dan e",
+       "(a or (d if c else b or a)) and e"),
     ]
     contexts = (
       ("hasilkan {expression};", "return {expression}"),
@@ -109,7 +140,7 @@ fungsi utama(): kosong { tampilkan(value(benar), "/", value(salah)); }
         sources.append(f"fungsi probe_{index}(a: apapun, b: apapun, c: apapun, d: apapun, e: apapun): apapun {{ {body.format(expression=expression)} }}")
         references.append(reference.format(expression=native))
     source = "\n".join(sources) + "\nfungsi utama(): kosong {}"
-    script = "from pyindo.compiler import compile_source\n" + f"source = {source!r}\nreferences = {references!r}\n" + """namespace = {'__name__': 'inspection'}
+    script = "from itertools import product\nfrom pyindo.compiler import compile_source\n" + f"source = {source!r}\nreferences = {references!r}\n" + """namespace = {'__name__': 'inspection'}
 exec(compile_source(source), namespace)
 class Probe:
   def __init__(self, label, values, trace):
@@ -119,19 +150,26 @@ class Probe:
     value = self.values[min(self.calls, len(self.values) - 1)]
     self.calls += 1
     return value
+profiles = [
+  [(False, True), (True, False), (condition,), (False, True), (True, False)]
+  for condition in (False, True)
+]
+# Also vary every operand's first truth value, including repeated conditions.
+profiles.extend(
+  [(initial, not initial) for initial in values]
+  for values in product((False, True), repeat=5)
+)
 for index, reference in enumerate(references):
   native_scope = {}
   exec('def expected(a,b,c,d,e):\\n  ' + reference, native_scope)
-  for condition in (False, True):
+  for profile in profiles:
     traces, outcomes = [], []
     for function in (native_scope['expected'], namespace[f'probe_{index}']):
       trace = []
-      arguments = [Probe(label, values, trace) for label, values in (
-        ('a', [False, True]), ('b', [True, False]), ('c', [condition]),
-        ('d', [False, True]), ('e', [True, False]))]
+      arguments = [Probe(label, values, trace) for label, values in zip('abcde', profile)]
       result = function(*arguments)
       outcomes.append(next((item.label for item in arguments if result is item), result))
       traces.append(trace)
-    assert traces[0] == traces[1] and outcomes[0] == outcomes[1], (index, condition, traces, outcomes)
+    assert traces[0] == traces[1] and outcomes[0] == outcomes[1], (reference, profile, traces, outcomes)
 """
     assert_program_result(run_python(script), "")

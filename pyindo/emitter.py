@@ -215,20 +215,24 @@ def emit_truth_jump(
       expression.operand, context, when_true=not when_true, target=target, preserve_value=False,
     )
 
-  if not preserve_value and isinstance(expression, Conditional):
+  if isinstance(expression, Conditional):
     false_label, end_label = Label(), Label()
-    # Consumed predicates reuse known truth in selected logical arms. Value-
-    # preserving contexts deliberately materialize and test the value again.
+    # CPython materializes the true arm before a value-preserving outer test.
+    # The false arm can pass known truth through; consuming predicates can do
+    # so for both arms. Keep this distinction observable to changing __bool__.
+    emit_true_jump = _emit_value_truth_jump if preserve_value else emit_truth_jump
     return [
       *emit_truth_jump(
         expression.condition, context, when_true=False, target=false_label, preserve_value=False,
       ),
-      *emit_truth_jump(
-        expression.true_value, context, when_true=when_true, target=target, preserve_value=False,
+      *emit_true_jump(
+        expression.true_value, context, when_true=when_true, target=target,
+        preserve_value=preserve_value,
       ),
       context.instruction("JUMP_FORWARD", end_label, span=expression.span), false_label,
       *emit_truth_jump(
-        expression.false_value, context, when_true=when_true, target=target, preserve_value=False,
+        expression.false_value, context, when_true=when_true, target=target,
+        preserve_value=preserve_value,
       ), end_label,
     ]
 
@@ -251,6 +255,19 @@ def emit_truth_jump(
       instructions.append(short_circuit_label)
 
     return instructions
+
+  return _emit_value_truth_jump(
+    expression, context, when_true=when_true, target=target, preserve_value=preserve_value,
+  )
+
+
+def _emit_value_truth_jump(
+  expression, context: EmissionContext, *, when_true: bool, target: Label,
+  preserve_value: bool,
+) -> list[Instr | Label]:
+  """
+  Evaluate a complete value, then test it with equal stack heights on both exits.
+  """
 
   jump = "POP_JUMP_IF_TRUE" if when_true else "POP_JUMP_IF_FALSE"
   instructions = emit_expression(expression, context)

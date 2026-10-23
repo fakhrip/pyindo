@@ -6,7 +6,7 @@ from bytecode.instr import InstrLocation
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
-  Assignment, Binary, Call, CallStatement, Declaration, If, InterpolatedString,
+  Assignment, AugmentedAssignment, Binary, Call, CallStatement, Declaration, If, InterpolatedString,
   Literal, Logical, Name, Program, Return, Unary,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
@@ -156,6 +156,15 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
     return [
       *emit_expression(statement.value, context),
       context.instruction("STORE_FAST", name, span=statement.span),
+    ]
+
+  if isinstance(statement, AugmentedAssignment):
+    # Read before the RHS and rebind; postfix syntax leaves no old/new value.
+    return [
+      context.instruction("LOAD_FAST_CHECK", statement.target, span=statement.span),
+      *emit_expression(statement.value, context),
+      context.instruction("BINARY_OP", BINARY_OPERATIONS[statement.operator], span=statement.span),
+      context.instruction("STORE_FAST", statement.target, span=statement.span),
     ]
 
   if isinstance(statement, CallStatement):

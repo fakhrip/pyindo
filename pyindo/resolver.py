@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
-  Assignment, Binary, Call, CallStatement, Declaration, If,
+  Assignment, AugmentedAssignment, Binary, Call, CallStatement, Declaration, If,
   InterpolatedString, Literal, Logical, Name, Program, Return, Unary,
 )
 
@@ -116,7 +116,7 @@ class FunctionAnalyzer:
       if isinstance(statement, Declaration):
         self.expression(statement.value, initialized)
         initialized.add(statement.name)
-      elif isinstance(statement, Assignment):
+      elif isinstance(statement, (Assignment, AugmentedAssignment)):
         self.require_initialized(statement.target, statement.span, initialized)
 
         if statement.target in self.scope.constant_names:

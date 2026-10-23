@@ -70,6 +70,14 @@ class Assignment:
 
 
 @dataclass(frozen=True)
+class AugmentedAssignment:
+  target: str
+  operator: str
+  value: Expression
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Return:
   value: Expression | None
   span: SourceSpan
@@ -88,7 +96,7 @@ class If:
   span: SourceSpan
 
 
-type Statement = Declaration | Assignment | Return | CallStatement | If
+type Statement = Declaration | Assignment | AugmentedAssignment | Return | CallStatement | If
 
 
 @dataclass(frozen=True)

@@ -1,12 +1,15 @@
+from dataclasses import replace
+
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
-  Assignment, Binary, Call, CallStatement, Declaration, Function, If,
+  Assignment, AugmentedAssignment, Binary, Call, CallStatement, Declaration, Function, If,
   InterpolatedString, Literal, Logical, Name, Parameter, Program, Return, Unary,
 )
 
 
 COMPARISONS = {"==", "!=", "<", "<=", ">", ">=", "adalah", "bukan"}
+AUGMENTED_OPERATORS = {"+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>="}
 BINDING_POWER = {
   "atau": (2, 3), "||": (2, 3), "dan": (4, 5), "&&": (4, 5),
   **{operator: (10, 11) for operator in COMPARISONS},
@@ -130,18 +133,6 @@ class Parser:
 
     opening = self.current
 
-    if opening.text in ("variabel", "konstanta"):
-      self.advance()
-      name = self.expect_name()
-      self.expect("=")
-      value = self.parse_expression()
-      closing = self.expect(";")
-
-      return Declaration(
-        name.text, value, opening.text == "konstanta",
-        opening.span.through(closing.span),
-      )
-
     if self.match("hasilkan"):
       value = None if self.current.text == ";" else self.parse_expression()
       closing = self.expect(";")
@@ -150,20 +141,58 @@ class Parser:
     if opening.text == "jika":
       return self.parse_if()
 
-    if opening.kind == TokenKind.NAME and self.tokens[self.position + 1].text == "=":
+    statement = self.parse_simple_statement()
+    closing = self.expect(";")
+
+    return replace(statement, span=opening.span.through(closing.span))
+
+  def parse_simple_statement(self, *, allow_declaration: bool = True):
+    """
+    Parse a name write or call; the caller owns its semicolon/header delimiter.
+    """
+
+    opening = self.current
+
+    if opening.text in ("variabel", "konstanta"):
+      if not allow_declaration:
+        raise PyIndoError("Declaration is not allowed in this header slot", opening.span)
+
       self.advance()
-      self.advance()
+      name = self.expect_name()
+      self.expect("=")
       value = self.parse_expression()
-      closing = self.expect(";")
-      return Assignment(opening.text, value, opening.span.through(closing.span))
+      return Declaration(
+        name.text, value, opening.text == "konstanta", opening.span.through(value.span),
+      )
+
+    if opening.kind == TokenKind.NAME:
+      operator = self.tokens[self.position + 1]
+
+      if operator.text in {"=", "++", "--"} | AUGMENTED_OPERATORS:
+        self.advance()
+        self.advance()
+
+        if operator.text in ("++", "--"):
+          # Postfix updates are statements, never expression-valued operators.
+          symbol = "+" if operator.text == "++" else "-"
+          return AugmentedAssignment(
+            opening.text, symbol, Literal(1, operator.span), opening.span.through(operator.span),
+          )
+
+        value = self.parse_expression()
+        span = opening.span.through(value.span)
+
+        if operator.text == "=":
+          return Assignment(opening.text, value, span)
+
+        return AugmentedAssignment(opening.text, operator.text[:-1], value, span)
 
     expression = self.parse_expression()
 
     if not isinstance(expression, Call):
       raise self.expected("assignment or function call")
 
-    closing = self.expect(";")
-    return CallStatement(expression, opening.span.through(closing.span))
+    return CallStatement(expression, expression.span)
 
   def parse_if(self) -> If:
     """

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from string import ascii_letters, digits
 
-from pyindo.diagnostics import PyIndoError, SourceMap, SourceSpan
+from pyindo.diagnostics import SOURCE_NEWLINE_PATTERN, PyIndoError, SourceMap, SourceSpan
 
 
 class TokenKind(Enum):
@@ -81,8 +81,8 @@ class Lexer:
     """
 
     if self.source_text.startswith("//", self.position, self.end):
-      line_end = self.source_text.find("\n", self.position, self.end)
-      comment_end = self.end if line_end == -1 else line_end
+      line_end = SOURCE_NEWLINE_PATTERN.search(self.source_text, self.position, self.end)
+      comment_end = self.end if line_end is None else line_end.start()
       nul_position = self.source_text.find("\0", self.position, comment_end)
 
       if nul_position != -1:
@@ -189,29 +189,35 @@ class Lexer:
 
   def scan_string(self) -> tuple[StringText | StringExpression | StringError, ...]:
     """
-    Decode literal text once and retain source regions for embedded expressions.
+    Decode ordinary/triple text once, retaining original interpolation regions.
+
+    Triple strings preserve whitespace while normalizing physical newlines in
+    decoded text only. Delimiter recognition never reads past this lexer region.
     """
 
     quote_start = self.position
     quote = self.source_text[self.position]
-    self.position += 1
+    delimiter = quote * 3 if self.source_text.startswith(quote * 3, self.position, self.end) else quote
+    multiline = len(delimiter) == 3
+    self.position += len(delimiter)
     text_start = self.position
     text_parts = []
     parts = []
 
     while self.position < self.end:
       character = self.source_text[self.position]
+      closing = self.source_text.startswith(delimiter, self.position, self.end)
 
       try:
-        if character == quote or self.source_text.startswith("${", self.position, self.end):
+        if closing or self.source_text.startswith("${", self.position, self.end):
           if text_parts:
             parts.append(StringText(
               "".join(text_parts), self.source_map.span(text_start, self.position),
             ))
             text_parts = []
 
-          if character == quote:
-            self.position += 1
+          if closing:
+            self.position += len(delimiter)
             return tuple(parts)
 
           self.position += 2
@@ -219,6 +225,11 @@ class Lexer:
           text_start = self.position
         elif character == "\\":
           text_parts.append(self.scan_escape())
+        elif multiline and character in "\r\n":
+          # Keep offsets into the source, even when CRLF becomes one text LF.
+          newline = SOURCE_NEWLINE_PATTERN.match(self.source_text, self.position, self.end)
+          text_parts.append("\n")
+          self.position = newline.end()
         elif character in "\r\n\0":
           raise self.error("Unexpected newline or NUL in string", self.position)
         else:

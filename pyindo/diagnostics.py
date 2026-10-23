@@ -1,8 +1,10 @@
 from bisect import bisect_right
 from dataclasses import dataclass
+import re
 
 
 COMPLEXITY_ERROR_MESSAGE = "Source complexity exceeds compiler limit"
+SOURCE_NEWLINE_PATTERN = re.compile(r"\r\n|\r|\n")
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,7 @@ class SourceMap:
   def __init__(self, source_text: str):
     self.line_starts = [0]
     self.line_starts.extend(
-      index + 1 for index, character in enumerate(source_text) if character == "\n"
+      match.end() for match in SOURCE_NEWLINE_PATTERN.finditer(source_text)
     )
 
   def span(self, start: int, end: int) -> SourceSpan:

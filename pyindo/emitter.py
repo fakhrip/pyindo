@@ -4,7 +4,7 @@ from types import CodeType
 from bytecode import BinaryOp, Bytecode, Compare, CompilerFlags, Instr, Intrinsic1Op, Label
 from bytecode.instr import InstrLocation
 
-from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
+from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, SOURCE_NEWLINE_PATTERN, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
   Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
@@ -46,7 +46,7 @@ class EmissionContext:
   loop_targets: list[LoopTargets] = field(default_factory=list)
 
   def __post_init__(self):
-    self.source_lines = self.source_text.split("\n")
+    self.source_lines = SOURCE_NEWLINE_PATTERN.split(self.source_text)
 
   def instruction(self, name, argument=None, *, span, has_argument=True):
     """

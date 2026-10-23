@@ -58,35 +58,77 @@ You can find all program examples of pyindo language in the [`tests/`](./tests/)
 
 ## Current implementation status
 
-The CPython 3.15 port restores the existing implemented language first. The
-larger v1 example below is a roadmap, not a program that currently runs.
+Milestone 2 implements the core language on CPython 3.15. The larger typed v1
+example below remains a roadmap. The supported subset is untyped:
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
-| `utama` entrypoint and no-argument helper functions | Variables, reassignment, constants, and proper local scopes |
-| Sequential helper calls and continued execution afterward | Function parameters, call expressions, and real `hasilkan` return semantics |
-| Literal printing, escapes, and `${expression}` interpolation | General string/expression parsing, including punctuation in strings and decimal literals |
-| Existing binary-operation helpers and literal arithmetic/comparisons | Correct precedence/associativity and unary-operator parsing in all cases |
-| Existing braced `jika` / `selainnya jika` / `selainnya` chains | Nested conditions and `maka` shorthand |
-| Existing comment and flexible-whitespace examples | Boolean short-circuiting, loops, collections, deletion, and type checking |
+| Function-local `variabel`, `konstanta`, and mutable reassignment | Module variables, closures, and nested functions |
+| Positional parameters, nested call expressions, forward calls, and recursion | Typed/default/keyword/variadic parameters and first-class functions |
+| Real `hasilkan` values, early returns, and implicit `None` on fallthrough | Program arguments and entrypoint-selected process exit status |
+| Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons, short-circuit Boolean operators, and logical negation |
+| Nested braced `jika` / `selainnya jika` / `selainnya` chains | `maka` shorthand, loops, break/continue, and conditional expressions |
+| Unicode strings, escapes, `${expression}`, and outside-string comments | Multiline strings, collections/indexing/deletion, imports, and type checking |
+
+```pyindo
+fungsi utama() {
+  konstanta batas = 10;
+  variabel total = jumlah(2, 3);
+  total = total + batas;
+
+  jika (total >= 10) {
+    tampilkan("hasil: ${total}");
+  } selainnya {
+    tampilkan("hasil kecil");
+  }
+}
+
+fungsi jumlah(angka_pertama, angka_kedua) {
+  hasilkan angka_pertama + angka_kedua;
+}
+```
+
+This prints `hasil: 15`. All functions are defined before `utama` is called,
+so helpers may appear later in the file. Every program requires exactly one
+zero-argument `utama`. It runs once under the normal CLI; its returned value
+is discarded and a successful run exits 0. `hasilkan;` and falling through a
+function return `None`.
+
+Variables and constants need initializers. Parameters start initialized;
+other names may be read only after initialization on every path that reaches
+the read. Braces do not create a separate scope. Duplicate declarations within
+a function and reassigning a constant are errors. A branch that returns does
+not need to initialize a variable used only by the other, continuing branch.
+
+`tampilkan` formats its arguments left to right, concatenating them without
+separators or a final newline. It returns `None`; Booleans print as `True` and
+`False`. Interpolation accepts expressions and nested calls. `\${` produces a
+literal `${`; other supported escapes include `\n`, `\t`, `\\`, and Unicode
+escapes. Comments (`//` and non-nested `/* ... */`) apply outside string text.
+
+Arithmetic follows Python precedence: `2 ** 3 ** 2` is 512, `-2 ** 2` is -4,
+and `/` is true division. Identifiers use ASCII letters, digits, and underscores,
+starting with a letter or underscore; strings can contain Unicode. Keywords
+are complete words. Functions cannot be named `tampilkan`, `print`, `__name__`,
+`__file__`, or `__builtins__`, which are reserved for printing/module execution.
 
 `python test.py` uses standard-library `unittest`. It fails on mismatched output,
 unexpected exit status/stderr, orphaned fixtures, or a subprocess timeout.
 Expected output retains significant whitespace.
 
-All 19 original fixtures are accounted for: ten implemented success examples,
-eight expected syntax errors, and one specifically asserted implementation gap.
-`simple_math.pyind` currently fails on its variable declaration; its recorded
-output also disagrees with the source's message and true division. It must be
-reconciled when variables are implemented. The existing `return_value` example
-checks printed output only and does not prove that `hasilkan` works.
+All 19 original fixtures are checked: 11 success examples and eight expected
+syntax errors. `simple_math.pyind` now prints its complete message ending in
+`180.0`, reflecting true division. Additional tests cover actual return values,
+early exits, local scopes, initialization, recursion, nested conditions, source
+positions, and malformed input. Newly assembled bytecode executes in test
+subprocesses so a backend failure cannot terminate the test runner itself.
 
 ## Language specificaton
 
 Entrypoint should be available for the compiler to run properly, it could be made like this:
 ```pyindo
 fungsi utama() {
-    // Apapun isinya
+  // Apapun isinya
 }
 ```
 
@@ -197,8 +239,22 @@ The main reason behind this creation is just to learn and explore how to build a
 
 These are the steps of the compilation process:
 
-1. Parse the pyindo code using a handwritten parser  
-2. Convert it into python bytecode using the help of [bytecode](https://github.com/MatthieuDartiailh/bytecode) (we have a plan on replacing this with our custom implementation later on)
+1. Tokenize the source with character-based locations, then parse a small AST.
+2. Resolve function signatures and local bindings; check arity, constants, and initialization paths.
+3. Emit CPython 3.15 instructions and assemble them with [bytecode](https://github.com/MatthieuDartiailh/bytecode).
+
+The compiler generates bytecode directly. Source locations are converted to
+UTF-8 byte columns when attached to executable instructions.
+
+For embedding, `pyindo.compiler.compile_source(source_text, filename=...)`
+returns a Python code object and raises `PyIndoError` for source errors.
+Exceptionally deep nesting or expressions that exceed the compiler's recursive
+traversal capacity receive a located complexity-limit diagnostic.
+
+`pyindo.parser.parse_program(source_text)` is the compatibility interface:
+it returns `(module_instructions, function_code_objects)` and accepts one
+optional final NUL sentinel. Its error contract remains printing a diagnostic
+and raising `SystemExit(70)`. New callers should use `compile_source`.
 
 And then we can execute the compiled bytecode using python [exec](https://docs.python.org/3/library/functions.html#exec) function (maybe we can also create a custom interpreter (as a replacement of CPython) of our own later when we have enough guts to work on that part :D).
 

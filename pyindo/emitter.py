@@ -7,7 +7,7 @@ from bytecode.instr import InstrLocation
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
   Assignment, Binary, Call, CallStatement, Declaration, If, InterpolatedString,
-  Literal, Name, Program, Return, Unary,
+  Literal, Logical, Name, Program, Return, Unary,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
 
@@ -84,10 +84,27 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
 
     if expression.operator == "+":
       instructions.append(instruction("CALL_INTRINSIC_1", Intrinsic1Op.INTRINSIC_UNARY_POSITIVE))
+    elif expression.operator == "not":
+      instructions.extend([
+        instruction("TO_BOOL", has_argument=False),
+        instruction("UNARY_NOT", has_argument=False),
+      ])
     else:
       instructions.append(instruction("UNARY_NEGATIVE", has_argument=False))
 
     return instructions
+
+  if isinstance(expression, Logical):
+    end_label = Label()
+    jump = "POP_JUMP_IF_FALSE" if expression.operator == "and" else "POP_JUMP_IF_TRUE"
+
+    # Coerce a copy for branching; retain the original selected operand.
+    return [
+      *emit_expression(expression.left, context),
+      instruction("COPY", 1), instruction("TO_BOOL", has_argument=False),
+      instruction(jump, end_label), instruction("POP_TOP", has_argument=False),
+      *emit_expression(expression.right, context), end_label,
+    ]
 
   if isinstance(expression, Binary):
     instructions = [

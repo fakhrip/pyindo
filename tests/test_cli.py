@@ -172,7 +172,10 @@ fungsi jumlah(a, b) { hasilkan a + b; }
     assert_program_result(run_source(source, ("-O",)), "5")
 
   def test_invalid_new_language_syntax_has_a_located_user_error(self):
-    for body in ("variabel value = value;", "missing();", "hasilkan 1 < 2 < 3;", "untuk (;;) {}", "tampilkan(\"${}\");"):
+    for body in (
+      "variabel value = value;", "missing();", "hasilkan 1 < 2 < 3;",
+      "untuk (variabel i: desimal = 0; i < 2; i++) {}", "tampilkan(\"${}\");",
+    ):
       with self.subTest(body=body):
         completed_process = run_source(f"fungsi utama() {{ {body} }}")
 

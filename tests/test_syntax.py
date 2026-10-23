@@ -102,7 +102,7 @@ fungsi utama() { hasilkan; }
     sources = [
       "fungsi utama() { jika () {} }", "fungsi utama() { tampilkan(1) }",
       "fungsi utama(a: desimal) {}", "fungsi utama() { untuk (;;) {} }",
-      "fungsi utama() { hasilkan 1 && 2; }", "fungsi utama() { x += 1; }",
+      "fungsi utama() { hasilkan 1 && ; }", "fungsi utama() { x += 1; }",
       "fungsi utama() { jika (benar) maka tampilkan(1); }",
       'fungsi utama() { tampilkan("${}"); }', "fungsi utama() {} extra",
       "fungsi utama() { hasilkan (1 + 2; }",

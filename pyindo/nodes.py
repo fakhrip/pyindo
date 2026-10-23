@@ -31,6 +31,14 @@ class Binary:
 
 
 @dataclass(frozen=True)
+class Logical:
+  operator: str
+  left: "Expression"
+  right: "Expression"
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Call:
   callee: str
   arguments: list["Expression"]
@@ -43,7 +51,7 @@ class InterpolatedString:
   span: SourceSpan
 
 
-type Expression = Literal | Name | Unary | Binary | Call | InterpolatedString
+type Expression = Literal | Name | Unary | Binary | Logical | Call | InterpolatedString
 
 
 @dataclass(frozen=True)

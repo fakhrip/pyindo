@@ -2,12 +2,13 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, Binary, Call, CallStatement, Declaration, Function, If,
-  InterpolatedString, Literal, Name, Parameter, Program, Return, Unary,
+  InterpolatedString, Literal, Logical, Name, Parameter, Program, Return, Unary,
 )
 
 
 COMPARISONS = {"==", "!=", "<", "<=", ">", ">=", "adalah", "bukan"}
 BINDING_POWER = {
+  "atau": (2, 3), "||": (2, 3), "dan": (4, 5), "&&": (4, 5),
   **{operator: (10, 11) for operator in COMPARISONS},
   "|": (20, 21), "&": (25, 26), "<<": (30, 31), ">>": (30, 31),
   "+": (40, 41), "-": (40, 41),
@@ -16,7 +17,7 @@ BINDING_POWER = {
 }
 UNSUPPORTED = {
   "maka", "untuk", "selama", "berhenti", "lewati", "cocokkan", "hapus",
-  "tidak", "dan", "atau", "didalam", "&&", "||", "!", ":", "[", "]",
+  "didalam", ":", "[", "]",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
 
@@ -198,7 +199,14 @@ class Parser:
 
     opening = self.current
 
-    if opening.text in ("+", "-"):
+    if opening.text in ("tidak", "!"):
+      if minimum_power > 6:
+        raise self.expected("parenthesized logical negation")
+
+      self.advance()
+      operand = self.parse_expression(6)
+      expression = Unary("not", operand, opening.span.through(operand.span))
+    elif opening.text in ("+", "-"):
       self.advance()
       operand = self.parse_expression(60)
       expression = Unary(opening.text, operand, opening.span.through(operand.span))
@@ -222,8 +230,14 @@ class Parser:
 
       self.advance()
       right = self.parse_expression(right_power)
-      symbol = {"adalah": "==", "bukan": "!="}.get(operator.text, operator.text)
-      expression = Binary(symbol, expression, right, expression.span.through(right.span))
+      span = expression.span.through(right.span)
+
+      if operator.text in ("dan", "&&", "atau", "||"):
+        symbol = "and" if operator.text in ("dan", "&&") else "or"
+        expression = Logical(symbol, expression, right, span)
+      else:
+        symbol = {"adalah": "==", "bukan": "!="}.get(operator.text, operator.text)
+        expression = Binary(symbol, expression, right, span)
 
     return expression
 

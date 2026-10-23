@@ -87,13 +87,24 @@ def entrypoint_exit_status(result: object) -> int:
   return result
 
 
+def module_export(module: ModuleType, name: str) -> object:
+  """
+  Read an owned export without invoking ModuleType's attribute special cases.
+
+  Explicit base lookup also avoids specialized attribute loads treating a
+  function named __dict__ as the namespace mapping after repeated execution.
+  """
+
+  return object.__getattribute__(module, "__dict__")[name]
+
+
 def _module_bindings(modules: list[ModuleType], bindings: tuple) -> dict[str, object]:
   """
   Bind an exported function or namespace from an already initialized dependency.
   """
 
   return {
-    alias: modules[index] if name is None else getattr(modules[index], name)
+    alias: modules[index] if name is None else module_export(modules[index], name)
     for alias, index, name in bindings
   }
 
@@ -110,8 +121,9 @@ def load_module_imports(bundle: tuple, bindings: tuple) -> dict[str, object]:
   for filename, code, dependency_bindings in bundle:
     module = ModuleType(filename)
     module.__file__ = filename
-    module.__dict__.update(_module_bindings(modules, dependency_bindings))
-    exec(code, module.__dict__)
+    namespace = object.__getattribute__(module, "__dict__")
+    namespace.update(_module_bindings(modules, dependency_bindings))
+    exec(code, namespace)
     modules.append(module)
 
   return _module_bindings(modules, bindings)

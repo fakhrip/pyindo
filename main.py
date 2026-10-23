@@ -71,6 +71,25 @@ def parse_argument(arguments: Sequence[str] | None = None) -> tuple[Path, dict, 
   return (source_path.resolve(), enabled_options, user_arguments)
 
 
+def bundled_module_codes(code: CodeType) -> list[CodeType]:
+  """
+  Find library code inside tuple bundles that dis.dis does not visit itself.
+
+  Normal nested functions are already handled by dis.dis. Traverse only tuple
+  containers here, retaining graph order without comparing distinct code objects.
+  """
+
+  pending = [value for value in reversed(code.co_consts) if isinstance(value, tuple)]
+  modules = []
+  while pending:
+    value = pending.pop()
+    if isinstance(value, CodeType):
+      modules.append(value)
+    elif isinstance(value, tuple):
+      pending.extend(reversed(value))
+  return modules
+
+
 def write_disassembly(code: CodeType, source_path: Path) -> None:
   """
   Write UTF-8 module and nested-function disassembly beside the input.
@@ -80,19 +99,30 @@ def write_disassembly(code: CodeType, source_path: Path) -> None:
   """
 
   disassembly_path = source_path.with_suffix(".dis")
+  library_codes = bundled_module_codes(code)
+  source_paths = [source_path, *(Path(library.co_filename) for library in library_codes)]
 
-  # A source can already end in .dis, or the output can link to the input.
-  # Neither case may turn a debugging request into source-file truncation.
-  if disassembly_path == source_path or (
-    disassembly_path.exists() and disassembly_path.samefile(source_path)
-  ):
+  def refers_to_source(path: Path) -> bool:
+    """
+    Protect every source in the graph, including output hardlinks and symlinks.
+    """
+
+    return path in source_paths or path.exists() and any(
+      source.exists() and path.samefile(source) for source in source_paths
+    )
+
+  # A source or link can occupy either output name; validate both before opening.
+  if refers_to_source(disassembly_path):
     disassembly_path = source_path.with_name(source_path.name + ".dis")
 
-  if disassembly_path.exists() and disassembly_path.samefile(source_path):
-    raise OSError("Disassembly output refers to the input file")
+  if refers_to_source(disassembly_path):
+    raise OSError("Disassembly output refers to a source file")
 
   with disassembly_path.open("w", encoding="utf-8") as output_file:
     dis.dis(code, file=output_file)
+    for library_code in library_codes:
+      print(f"\nImported module {library_code.co_filename}:\n", file=output_file)
+      dis.dis(library_code, file=output_file)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

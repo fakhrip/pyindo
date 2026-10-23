@@ -21,6 +21,7 @@ INVOKE_ENTRYPOINT_NAME = "<pyindo:invoke_entrypoint>"
 ENTRYPOINT_RESULT_NAME = "<pyindo:entrypoint_result>"
 LOAD_MODULE_IMPORTS_NAME = "<pyindo:load_module_imports>"
 IMPORT_BINDINGS_NAME = "<pyindo:import_bindings>"
+MODULE_EXPORT_NAME = "<pyindo:module_export>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -178,9 +179,12 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
     # CPython 3.15 needs callable, NULL, then arguments in evaluation order.
     if "." in callee:
       namespace, member = callee.split(".")
+      # Resolve declared exports without ModuleType descriptor/specialization traps.
       instructions = [
+        instruction("LOAD_GLOBAL", (True, MODULE_EXPORT_NAME)),
         instruction("LOAD_GLOBAL", (False, namespace)),
-        instruction("LOAD_ATTR", (False, member)),
+        instruction("LOAD_CONST", member),
+        instruction("CALL", 2),
         instruction("PUSH_NULL", has_argument=False),
       ]
     else:
@@ -594,6 +598,8 @@ def compile_program(
     helpers.append(("pyindo.type_checks", "prepare_typed_constant", PREPARE_CONSTANT_NAME))
   if import_bindings:
     helpers.append(("pyindo.runtime", "load_module_imports", LOAD_MODULE_IMPORTS_NAME))
+  if any("." in name for name in symbols.signatures):
+    helpers.append(("pyindo.runtime", "module_export", MODULE_EXPORT_NAME))
 
   for module_name, helper_name, global_name in helpers:
     # An impossible source identifier avoids collisions and caller-side injection.

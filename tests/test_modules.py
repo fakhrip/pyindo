@@ -1,3 +1,4 @@
+import re
 import tempfile
 import textwrap
 import unittest
@@ -5,7 +6,7 @@ from pathlib import Path
 
 from pyindo.compiler import compile_source
 from pyindo.diagnostics import PyIndoError, format_error
-from tests.fixture_runner import assert_program_result, run_python
+from tests.fixture_runner import REPOSITORY_PATH, assert_program_result, run_program, run_python
 
 
 def write_project(root: Path, files: dict[str, str | bytes]) -> Path:
@@ -41,6 +42,19 @@ with tempfile.TemporaryDirectory(prefix='pyindo modules café ') as directory:
 
 
 class ModuleExecutionTests(unittest.TestCase):
+  def test_descriptor_named_exports_resolve_as_functions(self):
+    library = "fungsi __dict__(): desimal { hasilkan 41; } fungsi __class__(): desimal { hasilkan 42; }"
+    roots = (
+      'dari "library.pyind" impor __dict__ sebagai mapping, __class__ sebagai kind; fungsi utama(): kosong { tampilkan(mapping(), "|", kind()); }',
+      'impor "library.pyind" sebagai library; fungsi utama(): kosong { tampilkan(library.__dict__(), "|", library.__class__()); }',
+    )
+    for source in roots:
+      with self.subTest(source=source):
+        # Warm repeated graph creation and calls to exercise native specialization.
+        repeat = "for iteration in range(50):\n  exec(code, {'__name__': '__main__'})\n"
+        assert_program_result(run_project({"library.pyind": library, "main.pyind": source},
+                                          repeat, module_name="__main__"), "41|42" * 51)
+
   def test_named_namespace_and_entry_aliases_keep_typed_calls(self):
     files = {
       "hitung.pyind": '''fungsi jumlah(a: desimal, b: desimal): desimal { hasilkan a + b; }
@@ -301,3 +315,91 @@ class ModuleErrorTests(unittest.TestCase):
       "b.pyind": 'fungsi value(): desimal { hasilkan 1; }',
     })
     self.assertIn("export", error.message)
+
+
+class ModuleCliTests(unittest.TestCase):
+  def test_debug_output_cannot_overwrite_any_dependency_source(self):
+    for suffix, fallback_linked in ((".pyind", False), (".pyind", True), (".dis", True)):
+      with self.subTest(suffix=suffix, fallback_linked=fallback_linked):
+        with tempfile.TemporaryDirectory(prefix="pyindo debug links ") as directory:
+          root = Path(directory)
+          entry = write_project(root, {
+            "library.pyind": "fungsi number(n: desimal): desimal { hasilkan n; }",
+            "main.pyind": 'impor "library.pyind" sebagai library; fungsi utama(): desimal { hasilkan library.number(7); }',
+          })
+          library = root / "library.pyind"
+          if suffix == ".dis":
+            entry = entry.rename(root / "main.dis")
+          else:
+            entry.with_suffix(".dis").hardlink_to(library)
+          fallback = entry.with_name(entry.name + ".dis")
+          if fallback_linked:
+            fallback.hardlink_to(library)
+          originals = {path: path.read_bytes() for path in (entry, library)}
+          result = run_program(entry, ("-D",))
+          for path, original in originals.items():
+            self.assertEqual(path.read_bytes(), original, str(path))
+          if fallback_linked:
+            self.assertEqual(result.returncode, 70)
+            self.assertIn("Could not write disassembly", result.stderr)
+          else:
+            assert_program_result(result, "", 7)
+            self.assertIn("Imported module ", fallback.read_text(encoding="utf-8"))
+
+  def test_cli_arguments_exit_status_and_debug_include_dependency_functions(self):
+    files = {
+      "café library.pyind": '''fungsi total(values: himpunan<desimal>): desimal {
+  variabel result: desimal = 0;
+  untuk (variabel value: desimal didalam values) { result += value; }
+  hasilkan result;
+}
+fungsi utama(): kosong { tampilkan("BAD LIBRARY ENTRY"); }''',
+      "main.pyind": '''impor "café library.pyind" sebagai library;
+fungsi utama(argv: himpunan<campuran>, argc: desimal): desimal {
+  tampilkan(library.total([1, 2, 3]), "/", argc, "/");
+  untuk (variabel word: campuran didalam argv) {
+    jika (word adalah argv[0]) maka lewati;
+    tampilkan(word, "|");
+  }
+  hasilkan 7;
+}''',
+    }
+    with tempfile.TemporaryDirectory(prefix="pyindo CLI modules é ") as directory:
+      root = Path(directory)
+      entry = write_project(root, files)
+      originals = {path: path.read_bytes() for path in root.glob("*.pyind")}
+      for options in ((), ("-O",), ("-D",), ("-O", "-D")):
+        for arguments, output in ((None, "6/1/"), (("é", "-D", "--"), "6/4/é|-D|--|")):
+          assert_program_result(run_program(entry, options, program_arguments=arguments), output, 7)
+      listing = entry.with_suffix(".dis").read_text(encoding="utf-8")
+      self.assertIn("Imported module ", listing)
+      self.assertIn(str(root / "café library.pyind"), listing)
+      self.assertIn("code object total", listing)
+      for path, original in originals.items():
+        self.assertEqual(path.read_bytes(), original)
+
+  def test_cli_module_compiler_and_runtime_errors_keep_separate_statuses(self):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      entry = write_project(root, {
+        "library.pyind": "fungsi number(n: desimal): desimal { hasilkan n; }",
+        "main.pyind": 'impor "library.pyind" sebagai library; fungsi utama(): kosong { tampilkan(library.number()); }',
+      })
+      result = run_program(entry)
+      self.assertEqual(result.returncode, 70)
+      self.assertIn("expects 1 arguments", result.stdout)
+      self.assertEqual(result.stderr, "")
+      entry.write_text('impor "library.pyind" sebagai library; fungsi utama(): kosong { tampilkan(library.number(benar)); }', encoding="utf-8")
+      result = run_program(entry, ("-D",))
+      self.assertEqual(result.returncode, 1)
+      self.assertIn("TypeError", result.stderr)
+      self.assertIn(str(root / "library.pyind"), result.stderr)
+      self.assertFalse(entry.with_suffix(".dis").exists())
+
+  def test_readme_two_file_program_runs_with_exact_output(self):
+    readme = (REPOSITORY_PATH / "README.md").read_text(encoding="utf-8")
+    section = readme.split("### Modules and imports\n", 1)
+    self.assertEqual(len(section), 2, "README modules example is missing")
+    blocks = re.findall(r"```pyindo\n(.*?)```", section[1], re.S)
+    files = {"hitung.pyind": blocks[0], "main.pyind": blocks[1]}
+    assert_program_result(run_project(files, module_name="__main__"), "jumlah: 5|12")

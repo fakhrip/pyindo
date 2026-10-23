@@ -54,10 +54,11 @@ class PyIndoError(Exception):
   Carry a user-facing compilation error without printing or terminating.
   """
 
-  def __init__(self, message: str, span: SourceSpan | None = None):
+  def __init__(self, message: str, span: SourceSpan | None = None, *, filename: str | None = None):
     super().__init__(message)
     self.message = message
     self.span = span
+    self.filename = filename
 
 
 def format_error(error: PyIndoError) -> str:
@@ -66,5 +67,7 @@ def format_error(error: PyIndoError) -> str:
   """
 
   location = f" (on line number {error.span.line})" if error.span else ""
+  if error.filename is not None:
+    location = f" (in {error.filename})" + location
 
   return f"Error: {error.message}{location}"

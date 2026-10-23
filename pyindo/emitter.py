@@ -11,7 +11,7 @@ from pyindo.nodes import (
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
 )
-from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
+from pyindo.resolver import FunctionScope, FunctionSignature, ProgramSymbols, analyze_program
 from pyindo.types import TypeSpec
 
 
@@ -19,6 +19,8 @@ PREPARE_VALUE_NAME = "<pyindo:prepare_typed_value>"
 PREPARE_CONSTANT_NAME = "<pyindo:prepare_typed_constant>"
 INVOKE_ENTRYPOINT_NAME = "<pyindo:invoke_entrypoint>"
 ENTRYPOINT_RESULT_NAME = "<pyindo:entrypoint_result>"
+LOAD_MODULE_IMPORTS_NAME = "<pyindo:load_module_imports>"
+IMPORT_BINDINGS_NAME = "<pyindo:import_bindings>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -174,7 +176,15 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
   if isinstance(expression, Call):
     callee = "print" if expression.callee == "tampilkan" else expression.callee
     # CPython 3.15 needs callable, NULL, then arguments in evaluation order.
-    instructions = [instruction("LOAD_GLOBAL", (True, callee))]
+    if "." in callee:
+      namespace, member = callee.split(".")
+      instructions = [
+        instruction("LOAD_GLOBAL", (False, namespace)),
+        instruction("LOAD_ATTR", (False, member)),
+        instruction("PUSH_NULL", has_argument=False),
+      ]
+    else:
+      instructions = [instruction("LOAD_GLOBAL", (True, callee))]
 
     for argument in expression.arguments:
       instructions.extend(emit_expression(argument, context))
@@ -558,12 +568,18 @@ def compile_function(function, scope, *, signatures, source_text, filename) -> C
   return bytecode.to_code()
 
 
-def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode:
+def compile_program(
+  program: Program, *, filename: str = "<pyindo>", symbols: ProgramSymbols | None = None,
+  is_library: bool = False, module_bundle: tuple = (), import_bindings: tuple = (),
+) -> Bytecode:
   """
-  Resolve a program and define every function before the guarded entrypoint call.
+  Define one module, optionally wiring a bundled graph before the root entrypoint.
   """
 
-  symbols = analyze_program(program)
+  if symbols is None:
+    if program.imports:
+      raise PyIndoError("Imports require module resolution", program.imports[0].span)
+    symbols = analyze_program(program, require_entrypoint=not is_library)
   instructions = [
     Instr("RESUME", 0, lineno=1),
     # Clear a previous main result even when this execution only imports definitions.
@@ -576,6 +592,8 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
   ]
   if any(scope.constant_names for scope in symbols.scopes.values()):
     helpers.append(("pyindo.type_checks", "prepare_typed_constant", PREPARE_CONSTANT_NAME))
+  if import_bindings:
+    helpers.append(("pyindo.runtime", "load_module_imports", LOAD_MODULE_IMPORTS_NAME))
 
   for module_name, helper_name, global_name in helpers:
     # An impossible source identifier avoids collisions and caller-side injection.
@@ -587,6 +605,20 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
       Instr("STORE_NAME", global_name, lineno=1),
       Instr("POP_TOP", lineno=1),
     ])
+
+  if import_bindings:
+    # Tuple nesting preserves library filenames during legacy root-only rewrites.
+    instructions.extend([
+      Instr("LOAD_NAME", LOAD_MODULE_IMPORTS_NAME), Instr("PUSH_NULL"),
+      Instr("LOAD_CONST", module_bundle), Instr("LOAD_CONST", import_bindings),
+      Instr("CALL", 2), Instr("STORE_NAME", IMPORT_BINDINGS_NAME),
+    ])
+    for alias, _, _ in import_bindings:
+      instructions.extend([
+        Instr("LOAD_NAME", IMPORT_BINDINGS_NAME), Instr("LOAD_CONST", alias),
+        Instr("BINARY_OP", BinaryOp.SUBSCR), Instr("STORE_NAME", alias),
+      ])
+    instructions.append(Instr("DELETE_NAME", IMPORT_BINDINGS_NAME))
 
   for function in program.functions:
     try:
@@ -601,18 +633,19 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
       Instr("MAKE_FUNCTION"), Instr("STORE_NAME", function.name),
     ])
 
-  module_exit = Label()
-  instructions.extend([
-    Instr("LOAD_NAME", "__name__"), Instr("LOAD_CONST", "__main__"),
-    Instr("COMPARE_OP", Compare.EQ), Instr("TO_BOOL"),
-    Instr("POP_JUMP_IF_FALSE", module_exit),
-    Instr("LOAD_NAME", INVOKE_ENTRYPOINT_NAME), Instr("PUSH_NULL"),
-    Instr("LOAD_NAME", "utama"), Instr("LOAD_CONST", len(symbols.signatures["utama"].parameters)),
-    Instr("CALL", 2),
-    # Library execution records a raw result; only the CLI interprets process status.
-    Instr("STORE_NAME", ENTRYPOINT_RESULT_NAME), module_exit,
-    Instr("LOAD_CONST", None), Instr("RETURN_VALUE"),
-  ])
+  if not is_library:
+    module_exit = Label()
+    instructions.extend([
+      Instr("LOAD_NAME", "__name__"), Instr("LOAD_CONST", "__main__"),
+      Instr("COMPARE_OP", Compare.EQ), Instr("TO_BOOL"),
+      Instr("POP_JUMP_IF_FALSE", module_exit),
+      Instr("LOAD_NAME", INVOKE_ENTRYPOINT_NAME), Instr("PUSH_NULL"),
+      Instr("LOAD_NAME", "utama"), Instr("LOAD_CONST", len(symbols.signatures["utama"].parameters)),
+      Instr("CALL", 2),
+      # Record the raw return; only the CLI interprets process status.
+      Instr("STORE_NAME", ENTRYPOINT_RESULT_NAME), module_exit,
+    ])
+  instructions.extend([Instr("LOAD_CONST", None), Instr("RETURN_VALUE")])
   bytecode = Bytecode(instructions)
   bytecode.flags = CompilerFlags(0)
   bytecode.name = bytecode.qualname = "<module>"

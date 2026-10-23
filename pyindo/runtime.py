@@ -2,6 +2,7 @@ import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from types import ModuleType
 
 
 EX_USAGE = 64
@@ -84,3 +85,33 @@ def entrypoint_exit_status(result: object) -> int:
   if not 0 <= result <= 255:
     raise ValueError("Entrypoint exit status must be between 0 and 255")
   return result
+
+
+def _module_bindings(modules: list[ModuleType], bindings: tuple) -> dict[str, object]:
+  """
+  Bind an exported function or namespace from an already initialized dependency.
+  """
+
+  return {
+    alias: modules[index] if name is None else getattr(modules[index], name)
+    for alias, index, name in bindings
+  }
+
+
+def load_module_imports(bundle: tuple, bindings: tuple) -> dict[str, object]:
+  """
+  Instantiate one isolated module graph for this execution, without a global cache.
+
+  Dependencies precede importers. Library code only defines functions, so all
+  bindings exist before any PyIndo entrypoint or ordinary function can execute.
+  """
+
+  modules = []
+  for filename, code, dependency_bindings in bundle:
+    module = ModuleType(filename)
+    module.__file__ = filename
+    module.__dict__.update(_module_bindings(modules, dependency_bindings))
+    exec(code, module.__dict__)
+    modules.append(module)
+
+  return _module_bindings(modules, bindings)

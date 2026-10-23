@@ -8,8 +8,6 @@ from pyindo.runtime import ensure_supported_runtime
 import re
 import codecs
 
-from pyindo.emitter import compile_program
-
 
 def compile_source(source_text: str, *, filename: str = "<pyindo>") -> CodeType:
   """
@@ -21,9 +19,9 @@ def compile_source(source_text: str, *, filename: str = "<pyindo>") -> CodeType:
 
   ensure_supported_runtime()
 
-  from pyindo.syntax import parse_module
+  from pyindo.modules import compile_module_graph
 
-  return compile_program(parse_module(source_text), filename=filename).to_code()
+  return compile_module_graph(source_text, filename=filename).to_code()
 
 
 def decode_escapes(s):

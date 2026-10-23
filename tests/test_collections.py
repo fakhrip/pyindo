@@ -1,9 +1,29 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from pyindo.diagnostics import PyIndoError
 from pyindo.resolver import analyze_program
 from pyindo.syntax import parse_module
-from tests.fixture_runner import assert_program_result, run_python, run_source
+from tests.fixture_runner import assert_program_result, run_program, run_python, run_source
+
+
+COLLECTION_PROGRAM = """fungsi utama() {
+  variabel angka = [1, 2, 3];
+  konstanta awal = angka;
+
+  angka[0] = 9;
+  tampilkan(awal, "|", angka, "|", 2 didalam angka, "|");
+
+  selama (angka tidak kosong) {
+    tampilkan(angka[0]);
+    hapus angka[0];
+  }
+
+  tampilkan(angka);
+}
+"""
+COLLECTION_OUTPUT = "[1, 2, 3]|[9, 2, 3]|True|923[]"
 
 
 class CollectionTests(unittest.TestCase):
@@ -329,3 +349,86 @@ fungsi utama() {
     ):
       with self.subTest(body=body):
         self.assert_rejected(body)
+
+  def test_complete_collection_program_and_optimization_option(self):
+    for options in ((), ("-O",)):
+      with self.subTest(options=options):
+        assert_program_result(run_source(COLLECTION_PROGRAM, options), COLLECTION_OUTPUT)
+
+  def test_disassembly_preserves_unicode_source_and_collection_operations(self):
+    with tempfile.TemporaryDirectory(prefix="pyindo m4 ") as temporary_directory:
+      source_path = Path(temporary_directory) / "listes café.pyind"
+      source_path.write_text(COLLECTION_PROGRAM, encoding="utf-8")
+      original_bytes = source_path.read_bytes()
+
+      assert_program_result(run_program(source_path, ("-D",)), COLLECTION_OUTPUT)
+      disassembly = source_path.with_suffix(".dis").read_text(encoding="utf-8")
+      self.assertEqual(source_path.read_bytes(), original_bytes)
+      for expected in ("IMPORT_NAME", "BUILD_LIST", "BINARY_OP", "STORE_SUBSCR",
+                       "DELETE_SUBSCR", "CONTAINS_OP", "TO_BOOL", str(source_path)):
+        self.assertIn(expected, disassembly)
+
+  def test_collection_instructions_keep_checked_loads_and_utf8_positions(self):
+    source = ('fungsi utama() { variabel values = [[7]]; konstanta saved = values; '
+              'tampilkan("café ${saved[0][0] didalam [7]}|${values tidak kosong}"); '
+              'values[0][0] = 8; hapus values[0][0]; }')
+    body = parse_module(source).functions[0].body
+    expressions = (body[0].value, body[2].call.arguments[0].parts[1],
+                   body[2].call.arguments[0].parts[3], body[3].target, body[4].target)
+    positions = [
+      (1, 1, len(source[:node.span.start].encode("utf-8")),
+       len(source[:node.span.end].encode("utf-8")))
+      for node in expressions
+    ]
+    script = (
+      "import dis\n"
+      "from pyindo.compiler import compile_source\n"
+      "namespace = {'__name__': 'inspection'}\n"
+      f"exec(compile_source({source!r}, filename='café.pyind'), namespace)\n"
+      "code = namespace['utama'].__code__\n"
+      "assert code.co_filename == 'café.pyind'\n"
+      f"assert all(position in list(code.co_positions()) for position in {positions!r})\n"
+      "for instruction in dis.get_instructions(code):\n"
+      "  if instruction.opname.startswith('LOAD_FAST'):\n"
+      "    assert instruction.opname == 'LOAD_FAST_CHECK'\n"
+      "assert not any(type(value) is list for value in code.co_consts)\n"
+    )
+    assert_program_result(run_python(script), "")
+    assert_program_result(run_source(source), "café True|True")
+
+  def test_collection_complexity_keeps_structured_compile_errors(self):
+    expressions = ("[" * 1200 + "0" + "]" * 1200,
+                   "[0]" + "[0]" * 1200, "[0]" + " + [0]" * 1200)
+    for expression in expressions:
+      with self.subTest(prefix=expression[:25]):
+        with self.assertRaisesRegex(PyIndoError, "complexity exceeds compiler limit") as raised:
+          analyze_program(parse_module(f"fungsi utama() {{ hasilkan {expression}; }}"))
+        self.assertIsNotNone(raised.exception.span)
+
+  def test_cli_distinguishes_compile_errors_from_runtime_index_errors(self):
+    completed = run_source("fungsi utama() { konstanta saved = [1]; saved[0] = 9; }")
+    self.assertEqual(completed.returncode, 70)
+    self.assertIn("Cannot mutate constant 'saved'", completed.stdout)
+    self.assertEqual(completed.stderr, "")
+
+    completed = run_source("fungsi utama() { variabel values = []; tampilkan(values[0]); }")
+    self.assertEqual(completed.returncode, 1)
+    self.assertEqual(completed.stdout, "")
+    self.assertIn("IndexError", completed.stderr)
+
+  def test_runtime_guard_precedes_snapshot_module_import(self):
+    script = (
+      "import sys\n"
+      "from unittest.mock import patch\n"
+      "from pyindo.compiler import compile_source\n"
+      "assert 'pyindo.values' not in sys.modules\n"
+      "with patch.object(sys, 'version_info', (3, 14, 0)):\n"
+      "  try:\n"
+      "    compile_source('fungsi utama() { konstanta saved = [1]; }')\n"
+      "  except RuntimeError as error:\n"
+      "    assert 'requires CPython 3.15.x' in str(error)\n"
+      "  else:\n"
+      "    raise AssertionError('unsupported runtime accepted')\n"
+      "assert 'pyindo.values' not in sys.modules\n"
+    )
+    assert_program_result(run_python(script), "")

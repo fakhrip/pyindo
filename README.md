@@ -58,7 +58,7 @@ You can find all program examples of pyindo language in the [`tests/`](./tests/)
 
 ## Current implementation status
 
-Milestone 3 adds structured control flow to the core language on CPython 3.15.
+Milestone 4 adds collections and deeply immutable constant snapshots on CPython 3.15.
 The larger typed v1 example below remains a roadmap. The supported subset is untyped:
 
 | Available and tested | Still planned or incomplete |
@@ -66,12 +66,15 @@ The larger typed v1 example below remains a roadmap. The supported subset is unt
 | Function-local `variabel`, `konstanta`, and mutable reassignment | Module variables, closures, and nested functions |
 | Positional parameters, nested call expressions, forward calls, and recursion | Typed/default/keyword/variadic parameters and first-class functions |
 | Real `hasilkan` values, early returns, and implicit `None` on fallthrough | Program arguments and entrypoint-selected process exit status |
-| Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place mutation |
+| Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place arithmetic |
 | Lazy `dan`/`&&`, `atau`/`||`, and logical `tidak`/`!` | Assignment expressions and conditional expressions |
 | Nested conditions and single-statement `maka` arms | Unbraced compound arms and optional statement semicolons |
 | Braced `selama` and C-style `untuk`, `berhenti`, and `lewati` | Iterator/range loops and loop-else |
-| Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and attribute/index targets |
-| Unicode strings, escapes, `${expression}`, and outside-string comments | Multiline strings, collections/indexing/deletion, imports, and type checking |
+| Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and augmented attribute/index targets |
+| Fresh nested list literals, indexed reads/writes, and indexed `hapus` | Slices, dictionaries/sets, comprehensions, methods, and unpacking |
+| Deeply immutable detached constant snapshots | Freezing arbitrary foreign Python objects |
+| `didalam` membership and contextual `tidak kosong` predicates | Infix `tidak didalam` and chained predicates |
+| Unicode strings, escapes, `${expression}`, and outside-string comments | Multiline strings, imports, and type checking |
 
 ```pyindo
 fungsi utama() {
@@ -147,8 +150,9 @@ initializer once, checks the condition before each iteration, and executes the
 update after each completed body. Each header slot can be omitted; an omitted
 condition means true. Both header semicolons and loop-body braces are required.
 New header bindings need `variabel` or `konstanta`; bare assignments update an
-existing initialized name. Initializers can also be updates or calls; update
-slots permit assignments, updates, or calls, with one statement per slot.
+existing initialized name. Initializers can also be updates, calls, or indexed
+deletions; update slots permit assignments, updates, calls, or indexed deletions,
+with one statement per slot.
 
 `berhenti;` exits the innermost loop. `lewati;` rechecks a while condition, or
 runs a for update exactly once before the next condition. Break and function
@@ -178,11 +182,78 @@ on repeated iterations, including a constant declaration; separate duplicate
 source declarations and explicit writes to constants remain errors.
 
 `maka` replaces braces around exactly one simple semicolon-terminated
-conditional-arm statement: a declaration, assignment/update, call, return,
-break, or continue. It also works for `selainnya jika` and `selainnya maka`.
-Compound if/loop arms and all loop bodies require braces. The typed v1 header,
-collections, `tidak kosong`, multiline strings, and conditional expressions
-remain future work.
+conditional-arm statement: a declaration, assignment/update, indexed deletion,
+call, return, break, or continue. It also works for `selainnya jika` and
+`selainnya maka`. Compound if/loop arms and all loop bodies require braces.
+Typed declarations, multiline strings, and conditional expressions remain future work.
+
+### Collections and constant snapshots
+
+```pyindo
+fungsi utama() {
+  variabel angka = [1, 2, 3];
+  konstanta awal = angka;
+
+  angka[0] = 9;
+  tampilkan(awal, "|", angka, "|", 2 didalam angka, "|");
+
+  selama (angka tidak kosong) {
+    tampilkan(angka[0]);
+    hapus angka[0];
+  }
+
+  tampilkan(angka);
+}
+```
+
+This prints `[1, 2, 3]|[9, 2, 3]|True|923[]`. Lists are ordered arrays, including
+empty `[]`, mixed values, nested lists, and a trailing comma such as `[1,]`.
+Every evaluation creates fresh lists; elements run once, from left to right.
+An ordinary assignment such as `variabel alias = angka;` shares the same list.
+The future type spelling `himpunan` refers to arrays, rather than mathematical sets.
+
+Indexing binds above unary signs and power. Reads can be chained and can follow
+calls, strings, or grouping: `buat()[1][0]`, `"café"[-1]`, and `([7, 8])[0]`.
+Each bracket pair contains one index. Zero-based, negative, and Boolean indices
+use Python subscription behavior. Invalid indices, bounds, and writes to
+immutable strings retain runtime `TypeError`/`IndexError` tracebacks.
+
+`angka[index] = value;` evaluates the RHS first, then the target base and indices
+from left to right, each once. `hapus angka[index];` evaluates its target once
+and removes that element; it does not delete the local binding. Both statements
+work in `maka` arms and for-header statement slots. Indexed `+=`/`++`, slices,
+multiple indices in one bracket pair, and variable deletion remain unsupported.
+
+`konstanta saved = original;` takes a deeply immutable snapshot of every nested
+list before binding `saved`. Later changes to `original` leave the snapshot
+unchanged. Aliases, parameters, and returned nested values referring to `saved`
+remain immutable. Direct writes/deletions through a known constant root are
+compile errors; indirect attempts through aliases or function calls raise
+runtime `TypeError`. Rebinding constants is still a compile error.
+
+Snapshots display and compare like lists. Concatenation and repetition produce
+fresh mutable outer lists; any nested frozen elements remain protected. Shared
+acyclic children are supported. Each execution of a constant declaration makes
+a new snapshot of its current initializer, including repeated loop iterations.
+
+Constant snapshots support exact built-in `None`, Boolean, integer, float,
+complex, and string values, lists, and already frozen values. Cyclic lists raise
+`TypeError: Cannot freeze a cyclic collection`. When embedding the compiler,
+other Python objects, scalar/list subclasses, dictionaries, sets, and tuples in
+constant initializers also raise `TypeError`; ordinary variables retain their
+existing Python interoperability.
+
+`item didalam values` returns an exact Boolean and evaluates item before values.
+It supports list equality membership and string substring membership. Negate it
+with `tidak (item didalam values)`. Membership has comparison precedence, and
+mixed comparison chains still need explicit grouping.
+
+`values tidak kosong` returns an exact Boolean using general truthiness: empty
+lists/strings and zero are false. The contextual phrase keeps `kosong` available
+as a variable or function name; `tidak kosong()` still negates that function's
+result. The phrase wraps an arithmetic operand, so `a + b tidak kosong` tests
+`a + b`. Parenthesize the predicate before further arithmetic or comparisons,
+such as `(values tidak kosong) + 1`. Logical continuations are supported.
 
 `python test.py` uses standard-library `unittest`. It fails on mismatched output,
 unexpected exit status/stderr, orphaned fixtures, or a subprocess timeout.
@@ -192,9 +263,9 @@ All 19 original fixtures are checked: 11 success examples and eight expected
 syntax errors. `simple_math.pyind` now prints its complete message ending in
 `180.0`, reflecting true division. Additional tests cover actual return values,
 early exits, local scopes, initialization, recursion, nested conditions, lazy
-logic, loop/update order, source positions, and malformed input. Newly assembled
-bytecode executes in test subprocesses so a backend failure cannot terminate the
-test runner itself.
+logic, loop/update order, immutable snapshots, collection evaluation order,
+source positions, and malformed input. Newly assembled bytecode executes in
+test subprocesses so a backend failure cannot terminate the test runner itself.
 
 ## Language specificaton
 

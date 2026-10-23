@@ -8,7 +8,7 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
   Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
-  ListLiteral, Literal, Logical, Name,
+  ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
@@ -94,6 +94,10 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
       instruction("BINARY_OP", BinaryOp.SUBSCR),
     ]
 
+  if isinstance(expression, NonEmpty):
+    # Test the source operand once; later jumps only see this exact bool.
+    return [*emit_expression(expression.operand, context), instruction("TO_BOOL", has_argument=False)]
+
   if isinstance(expression, InterpolatedString):
     instructions = []
 
@@ -143,6 +147,8 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
 
     if expression.operator in BINARY_OPERATIONS:
       instructions.append(instruction("BINARY_OP", BINARY_OPERATIONS[expression.operator]))
+    elif expression.operator == "in":
+      instructions.append(instruction("CONTAINS_OP", 0))
     else:
       instructions.append(instruction("COMPARE_OP", COMPARISON_OPERATIONS[expression.operator]))
 

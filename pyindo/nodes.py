@@ -52,6 +52,12 @@ class Index:
 
 
 @dataclass(frozen=True)
+class NonEmpty:
+  operand: "Expression"
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Call:
   callee: str
   arguments: list["Expression"]
@@ -64,7 +70,9 @@ class InterpolatedString:
   span: SourceSpan
 
 
-type Expression = Literal | Name | Unary | Binary | Logical | ListLiteral | Index | Call | InterpolatedString
+type Expression = (
+  Literal | Name | Unary | Binary | Logical | ListLiteral | Index | NonEmpty | Call | InterpolatedString
+)
 
 
 @dataclass(frozen=True)

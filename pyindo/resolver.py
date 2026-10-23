@@ -4,7 +4,7 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
   Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
-  ListLiteral, Literal, Logical, Name,
+  ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
 )
 
@@ -105,7 +105,7 @@ class FunctionAnalyzer:
 
     if isinstance(expression, Name):
       self.require_initialized(expression.identifier, expression.span, initialized)
-    elif isinstance(expression, Unary):
+    elif isinstance(expression, (Unary, NonEmpty)):
       self.expression(expression.operand, initialized)
     elif isinstance(expression, ListLiteral):
       for item in expression.items:

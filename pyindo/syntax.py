@@ -5,12 +5,12 @@ from pyindo.lexer import Lexer, StringError, StringExpression, StringText, Token
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
   Declaration, Delete, For, Function, If, Index, IndexedAssignment, InterpolatedString,
-  ListLiteral, Literal, Logical, Name,
+  ListLiteral, Literal, Logical, Name, NonEmpty,
   Parameter, Program, Return, Unary, While,
 )
 
 
-COMPARISONS = {"==", "!=", "<", "<=", ">", ">=", "adalah", "bukan"}
+COMPARISONS = {"==", "!=", "<", "<=", ">", ">=", "adalah", "bukan", "didalam"}
 AUGMENTED_OPERATORS = {"+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>="}
 BINDING_POWER = {
   "atau": (2, 3), "||": (2, 3), "dan": (4, 5), "&&": (4, 5),
@@ -22,7 +22,7 @@ BINDING_POWER = {
 }
 UNSUPPORTED = {
   "cocokkan",
-  "didalam", ":",
+  ":",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
 
@@ -300,6 +300,16 @@ class Parser:
 
     return For(initializer, condition, update, body, opening.span.through(closing.span))
 
+  def is_nonempty_operator(self) -> bool:
+    """
+    Recognize a contextual token pair without reserving the identifier kosong.
+    """
+
+    return (
+      self.current.text == "tidak"
+      and self.tokens[self.position + 1].text == "kosong"
+    )
+
   def parse_expression(self, minimum_power: int = 0):
     """
     Parse with binding powers; power binds above a left unary sign, below a right one.
@@ -323,18 +333,31 @@ class Parser:
 
     compared = False
 
-    while self.current.text in BINDING_POWER:
+    while self.current.text in BINDING_POWER or self.is_nonempty_operator():
       operator = self.current
-      left_power, right_power = BINDING_POWER[operator.text]
+      nonempty = self.is_nonempty_operator()
+      left_power, right_power = (10, 11) if nonempty else BINDING_POWER[operator.text]
 
       if left_power < minimum_power:
         break
 
-      if operator.text in COMPARISONS:
+      if operator.text in COMPARISONS or nonempty:
         if compared:
           raise PyIndoError("Chained comparisons are not supported", operator.span)
 
         compared = True
+
+      if nonempty:
+        self.advance()
+        closing = self.advance()
+        expression = NonEmpty(expression, expression.span.through(closing.span))
+
+        # The phrase ends its comparison operand; arithmetic needs grouping.
+        following_power = BINDING_POWER.get(self.current.text)
+        if following_power is not None and following_power[0] > 10:
+          raise self.expected("parenthesized nonempty predicate before arithmetic")
+
+        continue
 
       self.advance()
       right = self.parse_expression(right_power)
@@ -344,7 +367,7 @@ class Parser:
         symbol = "and" if operator.text in ("dan", "&&") else "or"
         expression = Logical(symbol, expression, right, span)
       else:
-        symbol = {"adalah": "==", "bukan": "!="}.get(operator.text, operator.text)
+        symbol = {"adalah": "==", "bukan": "!=", "didalam": "in"}.get(operator.text, operator.text)
         expression = Binary(symbol, expression, right, span)
 
     return expression

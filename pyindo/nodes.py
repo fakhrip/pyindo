@@ -95,6 +95,7 @@ class Function:
   parameters: list[Parameter]
   body: list[Statement]
   span: SourceSpan
+  name_span: SourceSpan | None = None
 
 
 @dataclass(frozen=True)

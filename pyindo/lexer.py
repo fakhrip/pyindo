@@ -14,6 +14,7 @@ class TokenKind(Enum):
   STRING = auto()
   SYMBOL = auto()
   EOF = auto()
+  ERROR = auto()
 
 
 @dataclass(frozen=True)
@@ -69,9 +70,19 @@ class Lexer:
     return PyIndoError(message, self.source_map.span(start, min(start + 1, self.end)))
 
   def skip_comment(self) -> bool:
+    """
+    Skip one outside-string comment while retaining validation of embedded NULs.
+    """
+
     if self.source_text.startswith("//", self.position):
       line_end = self.source_text.find("\n", self.position, self.end)
-      self.position = self.end if line_end == -1 else line_end
+      comment_end = self.end if line_end == -1 else line_end
+      nul_position = self.source_text.find("\0", self.position, comment_end)
+
+      if nul_position != -1:
+        raise self.error("Unexpected NUL character", nul_position)
+
+      self.position = comment_end
       return True
 
     if self.source_text.startswith("/*", self.position):
@@ -80,6 +91,11 @@ class Lexer:
 
       if comment_end == -1:
         raise self.error("Unterminated block comment", comment_start)
+
+      nul_position = self.source_text.find("\0", self.position, comment_end)
+
+      if nul_position != -1:
+        raise self.error("Unexpected NUL character", nul_position)
 
       self.position = comment_end + 2
       return True
@@ -98,6 +114,10 @@ class Lexer:
       raise self.error("Unterminated string", escape_start)
 
     character = self.source_text[self.position]
+
+    if character in "\r\n\0":
+      raise self.error("Unexpected newline or NUL in string", self.position)
+
     self.position += 1
 
     if character == "$" and self.source_text.startswith("{", self.position):
@@ -162,6 +182,10 @@ class Lexer:
     raise self.error("Unterminated interpolation", expression_start)
 
   def scan_string(self) -> tuple[StringText | StringExpression, ...]:
+    """
+    Decode literal text once and retain source regions for embedded expressions.
+    """
+
     quote_start = self.position
     quote = self.source_text[self.position]
     self.position += 1
@@ -196,8 +220,27 @@ class Lexer:
 
     raise self.error("Unterminated string", quote_start)
 
-  def tokens(self) -> list[Token]:
+  def tokens(self, *, defer_errors: bool = False) -> list[Token]:
+    """
+    Optionally retain a lexical error after its valid prefix for parser ordering.
+
+    Standalone tokenization still raises immediately. The parser reaches a
+    deferred error only after checking earlier tokens for syntax errors.
+    """
+
     tokens = []
+
+    try:
+      self.scan_tokens(tokens)
+    except PyIndoError as error:
+      if not defer_errors:
+        raise
+
+      tokens.append(Token(TokenKind.ERROR, "", error, error.span))
+
+    return tokens
+
+  def scan_tokens(self, tokens: list[Token]) -> None:
 
     while self.position < self.end:
       character = self.source_text[self.position]
@@ -239,7 +282,10 @@ class Lexer:
           raise self.error(f"Invalid numeric literal: {number_text}", token_start)
 
         kind = TokenKind.NUMBER
-        value = float(number_text) if len(number_parts) == 2 else int(number_text)
+        try:
+          value = float(number_text) if len(number_parts) == 2 else int(number_text)
+        except ValueError as conversion_error:
+          raise self.error("Numeric literal is too large or invalid", token_start) from conversion_error
       elif character in "\"'":
         kind, value = TokenKind.STRING, self.scan_string()
       else:
@@ -260,8 +306,6 @@ class Lexer:
       ))
 
     tokens.append(Token(TokenKind.EOF, "", None, self.source_map.span(self.end, self.end)))
-
-    return tokens
 
 
 def tokenize(source_text: str, *, start: int = 0, end: int | None = None) -> list[Token]:

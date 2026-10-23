@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Sequence
 
@@ -66,6 +67,23 @@ def run_python(script: str) -> subprocess.CompletedProcess[str]:
     encoding="utf-8",
     timeout=PROCESS_TIMEOUT_SECONDS,
   )
+
+
+def run_source(
+  source_text: str, options: Sequence[str] = ()
+) -> subprocess.CompletedProcess[str]:
+  """
+  Run an inline UTF-8 program from a system temporary directory.
+
+  Keep generated sources and optional disassembly outside the repository,
+  and wait for the child before removing its input directory.
+  """
+
+  with tempfile.TemporaryDirectory() as temporary_directory:
+    source_path = Path(temporary_directory) / "program.pyind"
+    source_path.write_text(source_text, encoding="utf-8")
+
+    return run_program(source_path, options)
 
 
 def assert_program_result(

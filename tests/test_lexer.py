@@ -68,3 +68,15 @@ class LexerTests(unittest.TestCase):
     expression_span = tokenize(source)[0].value[0].span
 
     self.assertEqual(source[expression_span.start:expression_span.end], 'call("}", /* } */ "//")')
+
+  def test_comments_and_escapes_cannot_hide_nuls_or_raw_newlines(self):
+    for source in ("// \0", "/* \0 */", '"\\\n"', '"\\\r"', '"\\\0"'):
+      with self.subTest(source=source):
+        with self.assertRaises(PyIndoError):
+          tokenize(source)
+
+  def test_oversized_integer_conversion_is_a_located_user_error(self):
+    with self.assertRaises(PyIndoError) as raised:
+      tokenize("1" * 4500)
+
+    self.assertEqual(raised.exception.span.start, 0)

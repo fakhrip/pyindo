@@ -10,6 +10,7 @@ from tests.fixture_runner import (
   assert_program_result,
   run_program,
   run_python,
+  run_source,
 )
 
 
@@ -55,7 +56,10 @@ class CliTests(unittest.TestCase):
       completed_process = run_program(source_path)
 
     self.assertEqual(completed_process.returncode, 70)
-    self.assertIn("Compiler Error:", completed_process.stdout)
+    self.assertEqual(
+      completed_process.stdout,
+      "Error: Expecting expression but got ')' (on line number 1)",
+    )
     self.assertEqual(completed_process.stderr, "")
 
   def test_main_can_be_called_repeatedly_without_changing_sys_argv(self):
@@ -104,6 +108,7 @@ class CliTests(unittest.TestCase):
           self.assertEqual(source_path.read_bytes(), original_bytes)
           self.assertIn("RESUME", disassembly)
           self.assertIn("helper", disassembly)
+          self.assertIn("utama", disassembly)
           self.assertIn("Disassembly of", disassembly)
           self.assertIn(str(source_path), disassembly)
           self.assertFalse(source_path.with_suffix(".pyc").exists())
@@ -143,3 +148,26 @@ class CliTests(unittest.TestCase):
     )
 
     assert_program_result(run_python(script), "source.pyind helper\n")
+
+  def test_entrypoint_return_does_not_choose_the_cli_status(self):
+    assert_program_result(run_source("fungsi utama() { hasilkan 1337; }"), "")
+
+  def test_optimization_preserves_the_new_language(self):
+    source = """fungsi utama() {
+  variabel value = jumlah(2, 3);
+  jika (value > 0) { tampilkan("${value}"); }
+}
+fungsi jumlah(a, b) { hasilkan a + b; }
+"""
+
+    assert_program_result(run_source(source, ("-O",)), "5")
+
+  def test_invalid_new_language_syntax_has_a_located_user_error(self):
+    for body in ("variabel value = value;", "missing();", "hasilkan 1 < 2 < 3;", "untuk (;;) {}", "tampilkan(\"${}\");"):
+      with self.subTest(body=body):
+        completed_process = run_source(f"fungsi utama() {{ {body} }}")
+
+        self.assertEqual(completed_process.returncode, 70)
+        self.assertTrue(completed_process.stdout.startswith("Error: "))
+        self.assertIn("(on line number 1)", completed_process.stdout)
+        self.assertEqual(completed_process.stderr, "")

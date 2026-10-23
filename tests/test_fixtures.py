@@ -20,10 +20,6 @@ class OriginalFixtureTests(unittest.TestCase):
     fixture_directory = REPOSITORY_PATH / "tests" / "success"
 
     for source_path, output_path in discover_pairs(fixture_directory):
-      # This single unfinished example has a dedicated diagnostic test below.
-      if source_path.stem == "simple_math":
-        continue
-
       with self.subTest(fixture=source_path.name):
         expected_output = output_path.read_text(encoding="utf-8")
 
@@ -37,14 +33,3 @@ class OriginalFixtureTests(unittest.TestCase):
         expected_output = output_path.read_text(encoding="utf-8")
 
         assert_program_result(run_program(source_path), expected_output, 70)
-
-  def test_simple_math_reports_the_known_variable_implementation_gap(self):
-    source_path = REPOSITORY_PATH / "tests" / "success" / "simple_math.pyind"
-
-    # Milestone 2 must replace this diagnostic assertion with actual variable
-    # semantics and reconcile the fixture's inconsistent expected output.
-    assert_program_result(
-      run_program(source_path),
-      "Error: Identifier 'test' has not declared yet (on line number 2)",
-      70,
-    )

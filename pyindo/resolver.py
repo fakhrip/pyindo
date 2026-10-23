@@ -64,6 +64,10 @@ class FunctionAnalyzer:
       raise PyIndoError(f"Identifier '{name}' is not initialized", span)
 
   def expression(self, expression, initialized: set[str]):
+    """
+    Check every operand and argument without executing or inferring its value.
+    """
+
     if isinstance(expression, Literal):
       return
 
@@ -165,7 +169,9 @@ def analyze_program(program: Program) -> ProgramSymbols:
 
   for function in program.functions:
     if function.name in RESERVED_FUNCTION_NAMES:
-      raise PyIndoError(f"Function name '{function.name}' is reserved", function.span)
+      raise PyIndoError(
+        f"Function name '{function.name}' is reserved", function.name_span or function.span,
+      )
 
     if function.name in signatures:
       raise PyIndoError(f"Duplicate function: {function.name}", function.span)

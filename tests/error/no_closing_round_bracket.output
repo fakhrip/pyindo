@@ -1,1 +1,1 @@
-Error: Expecting ')' but have reached the End Of File (on line number 3)
+Error: Expecting parameter name or ')' but got '{' (on line number 1)

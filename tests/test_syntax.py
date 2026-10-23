@@ -69,6 +69,13 @@ fungsi utama() { hasilkan; }
 
     self.assertIn("Chained comparisons", raised.exception.message)
 
+  def test_earlier_syntax_error_is_not_masked_by_later_lexical_error(self):
+    with self.assertRaises(PyIndoError) as raised:
+      parse_module("fungsiutama() {}\n@")
+
+    self.assertEqual(raised.exception.span.line, 1)
+    self.assertIn("Expecting 'fungsi'", raised.exception.message)
+
   def test_invalid_or_unsupported_syntax_is_located(self):
     sources = [
       "fungsi utama() { jika () {} }", "fungsi utama() { tampilkan(1) }",

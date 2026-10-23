@@ -1,5 +1,5 @@
 from types import CodeType
-from typing import Tuple, Union
+from typing import Union
 from bytecode import BinaryOp, Compare, Instr, Bytecode, Label
 
 from pyindo.types import LiteralString
@@ -280,115 +280,6 @@ def call_function(
   ])
 
   return bytecodes
-
-
-def define_function_content(
-  function_name: str,
-  function_bytecodes: dict,
-  is_entrypoint_function: bool,
-  line_number: int,
-) -> Tuple[list, CodeType | None]:
-  """
-  Assemble a function body and return its definition instructions/code object.
-
-  utama remains inline under the module's __main__ guard for this milestone.
-  Other named functions receive a separate code object and their own return.
-  """
-
-  bytecodes = []
-  function_codechunk = None
-
-  if is_entrypoint_function:
-    tail_bytecodes, module_exit_label = function_bytecodes["tail"]
-
-    # The guard consumes its Boolean and skips the inline entrypoint when
-    # code is inspected under a namespace other than __main__.
-    bytecodes.extend([
-      *function_bytecodes["header"],
-      Instr("TO_BOOL"),
-      Instr("POP_JUMP_IF_FALSE", module_exit_label),
-      *function_bytecodes["content"],
-      *tail_bytecodes,
-    ])
-  elif function_name:
-    compiled_bytecode = compile_bytecodes(
-      [*function_bytecodes["content"], *function_bytecodes["tail"][0]],
-      name=function_name,
-    )
-    function_codechunk = compiled_bytecode.to_code()
-
-    # MAKE_FUNCTION now consumes only the code object. An old qualname
-    # constant or flag operand would corrupt the definition's stack layout.
-    bytecodes.extend([
-      *function_bytecodes["header"],
-      Instr("LOAD_CONST", function_codechunk, lineno=line_number),
-      Instr("MAKE_FUNCTION"),
-      Instr("STORE_NAME", function_name),
-    ])
-  else:
-    # Preserve the parser's existing inline anonymous-block representation.
-    bytecodes.extend([
-      *function_bytecodes["header"],
-      *function_bytecodes["content"],
-    ])
-
-  return (bytecodes, function_codechunk)
-
-
-def define_function_tail(is_entrypoint_function: bool) -> Tuple[list, Label]:
-    if is_entrypoint_function:
-        label_else = Label()
-        return (
-            [
-                label_else,
-                Instr("LOAD_CONST", None),
-                Instr("RETURN_VALUE"),
-            ],
-            label_else,
-        )
-
-    return (
-        [
-            Instr("LOAD_CONST", None),  # TODO: Add function return value
-            Instr("RETURN_VALUE"),
-        ],
-    )
-
-
-def define_function_wrapper(
-    function_name: str,
-    function_params: list,
-    is_entrypoint_function: bool,
-    line_number: int,
-) -> Tuple[list, Tuple]:
-    bytecodes = []
-
-    if is_entrypoint_function:
-        # Function header definition for entrypoint
-        bytecodes.extend(
-            [
-                Instr("LOAD_NAME", "__name__", lineno=line_number),
-                Instr("LOAD_CONST", "__main__"),
-                Instr("COMPARE_OP", Compare.EQ),
-            ]
-        )
-
-        # Also define the function tail for entrypoint
-        return (bytecodes, define_function_tail(is_entrypoint_function))
-    else:
-        # Function header definition for other functions
-        for param in function_params:
-            bytecodes.extend(
-                [
-                    Instr("LOAD_CONST", param["name"], lineno=line_number),
-                    Instr("LOAD_NAME", param["type"], lineno=line_number),
-                ]
-            )
-
-        if len(function_params) > 0:
-            bytecodes.append(Instr("BUILD_TUPLE", 2 * len(function_params)))
-
-    return (bytecodes, define_function_tail(is_entrypoint_function))
 
 
 def _set_code_filename(code: CodeType, filename: str) -> CodeType:

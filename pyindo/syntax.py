@@ -1,5 +1,5 @@
 from pyindo.diagnostics import PyIndoError
-from pyindo.lexer import StringExpression, StringText, TokenKind, tokenize
+from pyindo.lexer import Lexer, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, Binary, Call, CallStatement, Declaration, Function, If,
   InterpolatedString, Literal, Name, Parameter, Program, Return, Unary,
@@ -31,12 +31,18 @@ class Parser:
 
   def __init__(self, source_text: str, *, start: int = 0, end: int | None = None):
     self.source_text = source_text
-    self.tokens = tokenize(source_text, start=start, end=end)
+    lexer = Lexer(source_text, start, len(source_text) if end is None else end)
+    self.tokens = lexer.tokens(defer_errors=True)
     self.position = 0
 
   @property
   def current(self):
-    return self.tokens[self.position]
+    token = self.tokens[self.position]
+
+    if token.kind == TokenKind.ERROR:
+      raise token.value
+
+    return token
 
   def advance(self):
     token = self.current
@@ -76,6 +82,10 @@ class Parser:
     return self.advance()
 
   def parse_function(self) -> Function:
+    """
+    Parse an untyped positional signature and its braced function body.
+    """
+
     opening = self.expect("fungsi")
     name = self.expect_name()
     self.expect("(")
@@ -92,9 +102,15 @@ class Parser:
     self.expect(")")
     body, closing = self.parse_block()
 
-    return Function(name.text, parameters, body, opening.span.through(closing.span))
+    return Function(
+      name.text, parameters, body, opening.span.through(closing.span), name_span=name.span,
+    )
 
   def parse_block(self):
+    """
+    Consume one complete block, reporting an unclosed brace at the real EOF.
+    """
+
     self.expect("{")
     body = []
 
@@ -107,6 +123,10 @@ class Parser:
     return body, self.expect("}")
 
   def parse_statement(self):
+    """
+    Select a statement form and consume its required terminator or owned block.
+    """
+
     opening = self.current
 
     if opening.text in ("variabel", "konstanta"):
@@ -208,6 +228,10 @@ class Parser:
     return expression
 
   def parse_primary(self):
+    """
+    Parse one literal, grouped expression, local name, or direct named call.
+    """
+
     token = self.current
 
     if self.match("("):
@@ -244,6 +268,10 @@ class Parser:
     raise self.expected("expression")
 
   def parse_string(self, token):
+    """
+    Reparse interpolation regions against their original absolute source offsets.
+    """
+
     parts = []
     has_expression = False
 

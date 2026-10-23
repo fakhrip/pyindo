@@ -107,8 +107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     return usage_exit.code
 
   # Keep dependency loading behind the runtime and command-line checks.
-  from pyindo.compiler import compile_bytecodes
-  from pyindo.parser import parse_program
+  from pyindo.compiler import compile_source
+  from pyindo.diagnostics import PyIndoError, format_error
 
   try:
     source_text = source_path.read_text(encoding="utf-8")
@@ -117,14 +117,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     return EX_NOINPUT
 
   try:
-    bytecodes, _ = parse_program(source_text + "\0")
-    compiled_bytecode = compile_bytecodes(bytecodes, filename=str(source_path))
-    code = compiled_bytecode.to_code()
-  except SystemExit as compilation_exit:
-    return compilation_exit.code
+    code = compile_source(source_text, filename=str(source_path))
+  except PyIndoError as compilation_error:
+    print(format_error(compilation_error), end="")
+    return EX_SOFTWARE
   except Exception as compilation_error:
-    # Malformed input can still trigger built-in exceptions in the legacy
-    # parser. Keep compilation failures here; program execution stays separate.
+    # Unexpected assembly/compiler failures stay separate from execution.
+    # Ordinary syntax/name errors use the structured diagnostic above.
     print(f"Compiler Error: {compilation_error}")
     return EX_SOFTWARE
 

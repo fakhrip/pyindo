@@ -11,6 +11,37 @@ from tests.fixture_runner import (
 
 
 class ControlFlowTests(unittest.TestCase):
+  def test_parser_facade_preserves_shape_and_optional_final_sentinel(self):
+    script = """from types import CodeType
+from pyindo.parser import parse_program
+from pyindo.compiler import compile_bytecodes
+for sentinel in ('', '\\0'):
+  instructions, chunks = parse_program('fungsi helper() { hasilkan 3; } fungsi utama() {}' + sentinel)
+  assert isinstance(instructions, list)
+  assert all(isinstance(chunk, CodeType) for chunk in chunks)
+  assert [chunk.co_name for chunk in chunks] == ['helper', 'utama']
+  namespace = {'__name__': 'inspection'}
+  exec(compile_bytecodes(instructions).to_code(), namespace)
+  assert namespace['helper']() == 3
+"""
+
+    assert_program_result(run_python(script), "")
+
+  def test_parser_facade_rejects_embedded_nul(self):
+    script = """from pyindo.parser import parse_program
+try:
+  parse_program('fungsi utama() {}\\0fungsi helper() {}')
+except SystemExit as error:
+  assert error.code == 70
+else:
+  raise AssertionError('embedded NUL was accepted')
+"""
+    completed_process = run_python(script)
+
+    self.assertEqual(completed_process.returncode, 0)
+    self.assertTrue(completed_process.stdout.startswith("Error: "))
+    self.assertEqual(completed_process.stderr, "")
+
   def test_repeated_calls_continue_to_the_next_statement(self):
     source_text = """fungsi helper() {
   tampilkan("helper");

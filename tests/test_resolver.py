@@ -45,6 +45,16 @@ fungsi second(value) { first(value); }
 
     self.analyze("fungsi utama() { variabel print = 1; variabel __name__ = 2; tampilkan(); }")
 
+  def test_reserved_function_error_points_to_the_name(self):
+    source = "fungsi\n  print() {}\nfungsi utama() {}"
+
+    with self.assertRaises(PyIndoError) as raised:
+      self.analyze(source)
+
+    self.assertEqual(raised.exception.span.line, 2)
+    self.assertEqual(raised.exception.span.column, 3)
+    self.assertEqual(source[raised.exception.span.start:raised.exception.span.end], "print")
+
   def test_mutable_locals_constants_and_parameter_initialization(self):
     symbols = self.analyze("""fungsi helper(value) {
   konstanta limit = 10;

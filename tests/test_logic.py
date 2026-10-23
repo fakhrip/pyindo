@@ -30,6 +30,70 @@ fungsi utama() { tampilkan(0 dan 7, 1 dan 7, "" atau "cadangan"); }
     assert_program_result(run_python(script), "")
     assert_program_result(run_source(source), "07cadangan")
 
+  def test_nested_logic_matches_python_truthiness_and_operand_identity(self):
+    expressions = [
+      ("a dan b dan c", "a and b and c"),
+      ("(a dan b) dan c", "(a and b) and c"),
+      ("a dan (b dan c)", "a and (b and c)"),
+      ("a || b atau c", "a or b or c"),
+      ("(a atau b) atau c", "(a or b) or c"),
+      ("a atau (b atau c)", "a or (b or c)"),
+      ("(a atau b) dan c", "(a or b) and c"),
+      ("(a dan b) atau c", "(a and b) or c"),
+      ("a dan (b atau c)", "a and (b or c)"),
+      ("a atau (b dan c)", "a or (b and c)"),
+    ]
+    # A repeated truth test flips these host objects, exposing duplicate checks.
+    cases = []
+
+    for expression, reference in expressions:
+      condition_result = f"True if ({reference}) else False"
+      cases.extend([
+        (f"hasilkan {expression};", reference),
+        (f"hasilkan tidak ({expression});", f"not ({reference})"),
+        (f"jika ({expression}) {{ hasilkan benar; }} hasilkan salah;", condition_result),
+        (
+          f"jika (tidak ({expression})) {{ hasilkan benar; }} hasilkan salah;",
+          f"True if not ({reference}) else False",
+        ),
+        (f"selama ({expression}) {{ hasilkan benar; }} hasilkan salah;", condition_result),
+        (f"untuk (; {expression};) {{ hasilkan benar; }} hasilkan salah;", condition_result),
+      ])
+
+    source = "\n".join(
+      f"fungsi probe_{index}(a, b, c) {{ {body} }}"
+      for index, (body, _) in enumerate(cases)
+    ) + "\nfungsi utama() {}"
+    references = [reference for _, reference in cases]
+    script = (
+      "from itertools import product\n"
+      "from pyindo.compiler import compile_source\n"
+      "class TruthProbe:\n"
+      "  def __init__(self, initial):\n"
+      "    self.initial, self.count = initial, 0\n"
+      "  def __bool__(self):\n"
+      "    self.count += 1\n"
+      "    return self.initial if self.count == 1 else not self.initial\n"
+      "namespace = {'__name__': 'inspection'}\n"
+      f"exec(compile_source({source!r}), namespace)\n"
+      f"for index, reference in enumerate({references!r}):\n"
+      "  for initial_values in product((False, True), repeat=3):\n"
+      "    expected_values = [TruthProbe(value) for value in initial_values]\n"
+      "    actual_values = [TruthProbe(value) for value in initial_values]\n"
+      "    expected = eval(reference, {}, dict(zip('abc', expected_values)))\n"
+      "    actual = namespace[f'probe_{index}'](*actual_values)\n"
+      "    if type(expected) is bool:\n"
+      "      assert actual is expected, (reference, initial_values)\n"
+      "    else:\n"
+      "      selected = next(i for i, value in enumerate(expected_values) if value is expected)\n"
+      "      assert actual is actual_values[selected], (reference, initial_values)\n"
+      "    assert [value.count for value in actual_values] == [\n"
+      "      value.count for value in expected_values\n"
+      "    ], (reference, initial_values)\n"
+    )
+
+    assert_program_result(run_python(script), "")
+
   def test_rhs_effects_are_short_circuited(self):
     source = """fungsi tandai() { tampilkan("R"); hasilkan 9; }
 fungsi utama() {

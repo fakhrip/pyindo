@@ -1,9 +1,35 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from pyindo.diagnostics import PyIndoError
 from pyindo.resolver import analyze_program
 from pyindo.syntax import parse_module
-from tests.fixture_runner import assert_program_result, run_source
+from tests.fixture_runner import assert_program_result, run_program, run_python, run_source
+
+
+CONTROL_FLOW_PROGRAM = """fungsi utama() {
+  variabel total = 0;
+
+  untuk (variabel angka = 0; angka < 6; angka++) {
+    jika (angka adalah 2) maka lewati;
+    jika (angka adalah 5) maka berhenti;
+    total += angka;
+  }
+
+  variabel sisa = 2;
+
+  selama (sisa > 0 dan total > 0) {
+    sisa -= 1;
+  }
+
+  cetak(total);
+}
+
+fungsi cetak(nilai) {
+  tampilkan(nilai);
+}
+"""
 
 
 class LoopTests(unittest.TestCase):
@@ -146,7 +172,7 @@ fungsi utama() {
 
   def test_for_break_and_return_skip_update(self):
     source = """fungsi update() { tampilkan("unexpected"); }
-fungsi probe() { untuk (;;) { hasilkan 7; } }
+fungsi probe() { untuk (;; update()) { hasilkan 7; } }
 fungsi utama() {
   untuk (;; update()) { berhenti; }
   tampilkan(probe());
@@ -320,3 +346,48 @@ fungsi utama() {
 
     self.assert_rejected("fungsi utama() { jika (benar) maka berhenti; }")
     self.assert_rejected("fungsi utama() { jika (benar) maka lewati; }")
+
+  def test_complete_control_flow_program_and_optimization_option(self):
+    for options in ((), ("-O",)):
+      with self.subTest(options=options):
+        assert_program_result(run_source(CONTROL_FLOW_PROGRAM, options), "8")
+
+  def test_control_flow_disassembly_preserves_unicode_source(self):
+    with tempfile.TemporaryDirectory(prefix="pyindo m3 ") as temporary_directory:
+      source_path = Path(temporary_directory) / "boucle café.pyind"
+      source_path.write_text(CONTROL_FLOW_PROGRAM, encoding="utf-8")
+      original_bytes = source_path.read_bytes()
+
+      assert_program_result(run_program(source_path, ("-D",)), "8")
+      disassembly = source_path.with_suffix(".dis").read_text(encoding="utf-8")
+
+      self.assertEqual(source_path.read_bytes(), original_bytes)
+      for expected in ("JUMP_BACKWARD", "POP_JUMP_IF_FALSE", "utama", "cetak", str(source_path)):
+        self.assertIn(expected, disassembly)
+
+  def test_new_control_flow_keeps_checked_loads_facade_and_source_positions(self):
+    source = 'fungsi utama() { variabel text = "é"; untuk (; salah;) {} }'
+    condition = parse_module(source).functions[0].body[1].condition
+    start_column = len(source[:condition.span.start].encode("utf-8"))
+    end_column = len(source[:condition.span.end].encode("utf-8"))
+    script = (
+      "import dis\n"
+      "from pyindo.compiler import compile_bytecodes, compile_source\n"
+      "from pyindo.parser import parse_program\n"
+      f"source = {CONTROL_FLOW_PROGRAM!r}\n"
+      "for sentinel in ('', '\\0'):\n"
+      "  instructions, chunks = parse_program(source + sentinel)\n"
+      "  assert [chunk.co_name for chunk in chunks] == ['utama', 'cetak']\n"
+      "  namespace = {'__name__': 'inspection'}\n"
+      "  exec(compile_bytecodes(instructions, filename='café.pyind').to_code(), namespace)\n"
+      "  for name in ('utama', 'cetak'):\n"
+      "    function = namespace[name]\n"
+      "    assert function.__code__.co_filename == 'café.pyind'\n"
+      "    for instruction in dis.get_instructions(function):\n"
+      "      if instruction.opname.startswith('LOAD_FAST'):\n"
+      "        assert instruction.opname == 'LOAD_FAST_CHECK'\n"
+      f"exec(compile_source({source!r}), namespace)\n"
+      f"assert (1, 1, {start_column}, {end_column}) in namespace['utama'].__code__.co_positions()"
+    )
+
+    assert_program_result(run_python(script), "")

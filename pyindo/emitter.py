@@ -104,13 +104,13 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
 
   if isinstance(expression, Logical):
     end_label = Label()
-    jump = "POP_JUMP_IF_FALSE" if expression.operator == "and" else "POP_JUMP_IF_TRUE"
 
-    # Coerce a copy for branching; retain the original selected operand.
+    # Reuse known truth across a chain; never test a selected operand twice.
     return [
-      *emit_expression(expression.left, context),
-      instruction("COPY", 1), instruction("TO_BOOL", has_argument=False),
-      instruction(jump, end_label), instruction("POP_TOP", has_argument=False),
+      *emit_truth_jump(
+        expression.left, context, when_true=expression.operator == "or", target=end_label,
+      ),
+      instruction("POP_TOP", has_argument=False),
       *emit_expression(expression.right, context), end_label,
     ]
 
@@ -154,6 +154,57 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
   raise TypeError(f"Unknown expression node: {type(expression).__name__}")
 
 
+def emit_truth_jump(
+  expression, context: EmissionContext, *, when_true: bool, target: Label,
+  preserve_value: bool = True,
+) -> list[Instr | Label]:
+  """
+  Branch on truthiness, optionally retaining the selected original operand.
+
+  A logical subtree routes its known truth directly to the enclosing decision.
+  This avoids repeated __bool__ calls for both mixed and same-operator chains.
+  Value expressions keep one operand on both exits; conditions consume it and
+  leave the stack empty on both exits. Negated conditions reverse the decision.
+  """
+
+  if not preserve_value and isinstance(expression, Unary) and expression.operator == "not":
+    return emit_truth_jump(
+      expression.operand, context, when_true=not when_true, target=target, preserve_value=False,
+    )
+
+  if isinstance(expression, Logical):
+    short_circuit_on_true = expression.operator == "or"
+    short_circuit_label = target if when_true == short_circuit_on_true else Label()
+    instructions = emit_truth_jump(
+      expression.left, context, when_true=short_circuit_on_true, target=short_circuit_label,
+      preserve_value=preserve_value,
+    )
+
+    if preserve_value:
+      instructions.append(context.instruction("POP_TOP", span=expression.span, has_argument=False))
+
+    instructions.extend(emit_truth_jump(
+      expression.right, context, when_true=when_true, target=target, preserve_value=preserve_value,
+    ))
+
+    if short_circuit_label is not target:
+      instructions.append(short_circuit_label)
+
+    return instructions
+
+  jump = "POP_JUMP_IF_TRUE" if when_true else "POP_JUMP_IF_FALSE"
+  instructions = emit_expression(expression, context)
+
+  if preserve_value:
+    instructions.append(context.instruction("COPY", 1, span=expression.span))
+
+  instructions.extend([
+    context.instruction("TO_BOOL", span=expression.span, has_argument=False),
+    context.instruction(jump, target, span=expression.span),
+  ])
+  return instructions
+
+
 def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
   """
   Emit a stack-neutral statement, or terminate the current frame with a return.
@@ -187,9 +238,10 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
   if isinstance(statement, While):
     condition_label, exit_label = Label(), Label()
     return [
-      condition_label, *emit_expression(statement.condition, context),
-      context.instruction("TO_BOOL", span=statement.condition.span, has_argument=False),
-      context.instruction("POP_JUMP_IF_FALSE", exit_label, span=statement.condition.span),
+      condition_label,
+      *emit_truth_jump(
+        statement.condition, context, when_true=False, target=exit_label, preserve_value=False,
+      ),
       *emit_loop_body(
         statement.body, context, LoopTargets(exit_label, condition_label, "JUMP_BACKWARD"),
       ),
@@ -204,11 +256,9 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
     instructions.append(condition_label)
 
     if statement.condition is not None:
-      instructions.extend([
-        *emit_expression(statement.condition, context),
-        context.instruction("TO_BOOL", span=statement.condition.span, has_argument=False),
-        context.instruction("POP_JUMP_IF_FALSE", exit_label, span=statement.condition.span),
-      ])
+      instructions.extend(emit_truth_jump(
+        statement.condition, context, when_true=False, target=exit_label, preserve_value=False,
+      ))
 
     instructions.extend(emit_loop_body(
       statement.body, context, LoopTargets(exit_label, update_label, "JUMP_FORWARD"),
@@ -247,11 +297,9 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
     for condition, body in statement.branches:
       # These destinations belong to this chain, never to a nested condition.
       next_arm = Label()
-      instructions.extend(emit_expression(condition, context))
-      instructions.extend([
-        context.instruction("TO_BOOL", span=condition.span, has_argument=False),
-        context.instruction("POP_JUMP_IF_FALSE", next_arm, span=condition.span),
-      ])
+      instructions.extend(emit_truth_jump(
+        condition, context, when_true=False, target=next_arm, preserve_value=False,
+      ))
 
       for nested_statement in body:
         instructions.extend(emit_statement(nested_statement, context))

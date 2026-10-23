@@ -4,7 +4,8 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, For, Function, If, Index, InterpolatedString, ListLiteral, Literal, Logical, Name,
+  Declaration, Delete, For, Function, If, Index, IndexedAssignment, InterpolatedString,
+  ListLiteral, Literal, Logical, Name,
   Parameter, Program, Return, Unary, While,
 )
 
@@ -20,7 +21,7 @@ BINDING_POWER = {
   "**": (70, 60),
 }
 UNSUPPORTED = {
-  "cocokkan", "hapus",
+  "cocokkan",
   "didalam", ":",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
@@ -161,10 +162,18 @@ class Parser:
 
   def parse_simple_statement(self, *, allow_declaration: bool = True):
     """
-    Parse a name write or call; the caller owns its semicolon/header delimiter.
+    Parse a write, indexed deletion, or call; the caller owns its delimiter.
     """
 
     opening = self.current
+
+    if self.match("hapus"):
+      target = self.parse_expression()
+
+      if not isinstance(target, Index):
+        raise PyIndoError("Deletion requires an indexed target", target.span)
+
+      return Delete(target, opening.span.through(target.span))
 
     if opening.text in ("variabel", "konstanta"):
       if not allow_declaration:
@@ -201,6 +210,10 @@ class Parser:
         return AugmentedAssignment(opening.text, operator.text[:-1], value, span)
 
     expression = self.parse_expression()
+
+    if isinstance(expression, Index) and self.match("="):
+      value = self.parse_expression()
+      return IndexedAssignment(expression, value, opening.span.through(value.span))
 
     if not isinstance(expression, Call):
       raise self.expected("assignment or function call")

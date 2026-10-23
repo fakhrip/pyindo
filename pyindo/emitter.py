@@ -7,7 +7,8 @@ from bytecode.instr import InstrLocation
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, For, If, Index, InterpolatedString, ListLiteral, Literal, Logical, Name,
+  Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
+  ListLiteral, Literal, Logical, Name,
   Program, Return, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
@@ -245,6 +246,22 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
       *emit_expression(statement.value, context),
       context.instruction("STORE_FAST", name, span=statement.span),
     ]
+
+  if isinstance(statement, (IndexedAssignment, Delete)):
+    target = statement.target
+    # Assignment evaluates its RHS before resolving even a nested target base.
+    instructions = (
+      emit_expression(statement.value, context) if isinstance(statement, IndexedAssignment) else []
+    )
+    instructions.extend([
+      *emit_expression(target.container, context),
+      *emit_expression(target.index, context),
+      context.instruction(
+        "STORE_SUBSCR" if isinstance(statement, IndexedAssignment) else "DELETE_SUBSCR",
+        span=target.span, has_argument=False,
+      ),
+    ])
+    return instructions
 
   if isinstance(statement, AugmentedAssignment):
     # Read before the RHS and rebind; postfix syntax leaves no old/new value.

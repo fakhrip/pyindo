@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, For, If, Index, InterpolatedString, ListLiteral, Literal, Logical, Name,
+  Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
+  ListLiteral, Literal, Logical, Name,
   Program, Return, Unary, While,
 )
 
@@ -138,6 +139,23 @@ class FunctionAnalyzer:
     else:
       raise TypeError(f"Unknown expression node: {type(expression).__name__}")
 
+  def mutation_target(self, target: Index, initialized: set[str]) -> None:
+    """
+    Check target reads and reject direct constant roots without alias inference.
+
+    Runtime frozen values protect indirect paths. Constants appearing only as
+    indices or inside a fresh expression result are not the mutated binding.
+    """
+
+    self.expression(target, initialized)
+    root = target.container
+
+    while isinstance(root, Index):
+      root = root.container
+
+    if isinstance(root, Name) and root.identifier in self.scope.constant_names:
+      raise PyIndoError(f"Cannot mutate constant '{root.identifier}'", target.span)
+
   def block(self, body, initialized: set[str], *, loop_depth: int = 0) -> FlowResult:
     """
     Track live exits separately from the source-order diagnostic cursor.
@@ -170,6 +188,11 @@ class FunctionAnalyzer:
     if isinstance(statement, Declaration):
       self.expression(statement.value, initialized)
       initialized.add(statement.name)
+    elif isinstance(statement, IndexedAssignment):
+      self.expression(statement.value, initialized)
+      self.mutation_target(statement.target, initialized)
+    elif isinstance(statement, Delete):
+      self.mutation_target(statement.target, initialized)
     elif isinstance(statement, (Assignment, AugmentedAssignment)):
       self.require_initialized(statement.target, statement.span, initialized)
 

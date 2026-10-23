@@ -91,6 +91,19 @@ class AugmentedAssignment:
 
 
 @dataclass(frozen=True)
+class IndexedAssignment:
+  target: Index
+  value: Expression
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
+class Delete:
+  target: Index
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Return:
   value: Expression | None
   span: SourceSpan
@@ -136,7 +149,7 @@ class Continue:
 
 
 type Statement = (
-  Declaration | Assignment | AugmentedAssignment | Return | CallStatement
+  Declaration | Assignment | AugmentedAssignment | IndexedAssignment | Delete | Return | CallStatement
   | If | While | For | Break | Continue
 )
 

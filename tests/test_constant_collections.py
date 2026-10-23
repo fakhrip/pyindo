@@ -1,11 +1,96 @@
 import operator
 import unittest
 
+from pyindo.diagnostics import PyIndoError
+from pyindo.resolver import analyze_program
+from pyindo.syntax import parse_module
 from pyindo.values import freeze_constant_value
 from tests.fixture_runner import assert_program_result, run_python, run_source
 
 
 class ConstantCollectionTests(unittest.TestCase):
+  def test_direct_constant_roots_are_static_mutation_errors(self):
+    for statement in ("saved[0] = 9;", "saved[0][0] = 9;", "((saved))[0] = 9;",
+                      "hapus saved[0];", "hapus saved[0][0];"):
+      with self.subTest(statement=statement):
+        source = f"fungsi utama() {{ konstanta saved = [[1]]; {statement} }}"
+        with self.assertRaisesRegex(PyIndoError, "Cannot mutate constant 'saved'"):
+          analyze_program(parse_module(source))
+
+  def test_aliases_parameters_and_returned_children_cannot_mutate_snapshots(self):
+    source = """fungsi store(value) { value[0] = 9; }
+fungsi remove(value) { hapus value[0]; }
+fungsi child(value) { hasilkan value[0]; }
+fungsi indirect() { konstanta saved = [[1]]; variabel alias = saved; alias[0][0] = 9; }
+fungsi expression() { konstanta saved = [1]; (saved atau [2])[0] = 9; }
+fungsi snapshot(value) { konstanta saved = value; hasilkan saved; }
+fungsi utama() {}
+"""
+    script = (
+      "from pyindo.compiler import compile_source\n"
+      "namespace = {'__name__': 'inspection'}\n"
+      f"exec(compile_source({source!r}), namespace)\n"
+      "original = [[1]]\n"
+      "saved = namespace['snapshot'](original)\n"
+      "for name in ('store', 'remove'):\n"
+      "  for value in (saved, saved[0], namespace['child'](saved)):\n"
+      "    try:\n"
+      "      namespace[name](value)\n"
+      "    except TypeError:\n"
+      "      pass\n"
+      "    else:\n"
+      "      raise AssertionError(name)\n"
+      "for name in ('indirect', 'expression'):\n"
+      "  try:\n"
+      "    namespace[name]()\n"
+      "  except TypeError:\n"
+      "    pass\n"
+      "  else:\n"
+      "    raise AssertionError(name)\n"
+      "namespace['store'](original[0])\n"
+      "assert saved == [[1]] and original == [[9]]\n"
+    )
+    assert_program_result(run_python(script), "")
+
+  def test_constant_indices_and_mutable_expression_results_are_not_constant_roots(self):
+    source = """fungsi utama() {
+  konstanta saved = [0];
+  variabel values = [1];
+  values[saved[0]] = 9;
+  (saved + [2])[0] = 7;
+  hapus (saved + [2])[0];
+  tampilkan(values, saved);
+}
+"""
+    assert_program_result(run_source(source), "[9][0]")
+
+  def test_source_cycles_fail_and_repeated_snapshots_keep_old_values(self):
+    source = """fungsi cycle() { variabel values = [0]; values[0] = values; konstanta saved = values; }
+fungsi utama() {
+  variabel values = [0];
+  variabel results = [0, 0];
+  untuk (variabel index = 0; index < 2; index++) {
+    konstanta saved = values;
+    results[index] = saved;
+    values[0] = values[0] + 1;
+  }
+  tampilkan(results, values);
+}
+"""
+    script = (
+      "from pyindo.compiler import compile_source\n"
+      "namespace = {'__name__': 'inspection'}\n"
+      f"exec(compile_source({source!r}), namespace)\n"
+      "try:\n"
+      "  namespace['cycle']()\n"
+      "except TypeError as error:\n"
+      "  assert str(error) == 'Cannot freeze a cyclic collection'\n"
+      "else:\n"
+      "  raise AssertionError('accepted cycle')\n"
+    )
+    assert_program_result(run_python(script), "")
+    assert_program_result(run_source(source), "[[0], [1]][2]")
+
   def test_compiled_constant_snapshots_are_detached_and_protected(self):
     source = """fungsi snapshot(value) { konstanta saved = value; hasilkan saved; }
 fungsi __pyindo_freeze_constant__() { hasilkan 22; }

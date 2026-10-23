@@ -1,7 +1,5 @@
 from __future__ import annotations
-from os import (
-    EX_SOFTWARE,  # Exit code that means an internal software error was detected.
-)
+from pyindo.runtime import EX_SOFTWARE
 from string import ascii_letters, digits
 from types import CodeType
 from enum import Enum

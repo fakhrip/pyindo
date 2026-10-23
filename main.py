@@ -1,7 +1,15 @@
-from os import (
-    EX_USAGE,  # Exit code that means that some kind of configuration error occurred.
-    EX_NOINPUT,  # Exit code that means an input file did not exist or was not readable.
-)
+import sys
+from pyindo.runtime import EX_USAGE, EX_NOINPUT, ensure_supported_runtime
+
+
+# Check the runtime before importing any version-specific assembler code.
+try:
+  ensure_supported_runtime()
+except RuntimeError as runtime_error:
+  print(runtime_error, file=sys.stderr)
+  sys.exit(EX_USAGE)
+
+
 from os.path import isfile
 from sys import argv, exit
 from pyindo.compiler import compile_bytecodes

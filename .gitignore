@@ -1,3 +1,9 @@
 __pycache__/*
 .vscode
 **/*.pyc
+
+# Keep local interpreters, environments, and generated output out of commits.
+__pycache__/
+.venv/
+.local-runtime/
+*.dis

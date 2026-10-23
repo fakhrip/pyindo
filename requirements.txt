@@ -1,1 +1,1 @@
-bytecode
+bytecode==0.19.1

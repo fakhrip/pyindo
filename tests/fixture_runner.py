@@ -32,7 +32,8 @@ def discover_pairs(fixture_directory: Path) -> list[tuple[Path, Path]]:
 
 
 def run_program(
-  source_path: Path, options: Sequence[str] = ()
+  source_path: Path, options: Sequence[str] = (), *,
+  program_arguments: Sequence[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
   """
   Run the compiler with this test session's interpreter in a child process.
@@ -41,8 +42,12 @@ def run_program(
   is terminated by subprocess.run and raises TimeoutExpired after 10 seconds.
   """
 
+  arguments = [sys.executable, str(COMPILER_PATH), str(source_path), *options]
+  if program_arguments is not None:
+    arguments.extend(["--", *program_arguments])
+
   return subprocess.run(
-    [sys.executable, str(COMPILER_PATH), str(source_path), *options],
+    arguments,
     cwd=REPOSITORY_PATH,
     capture_output=True,
     text=True,
@@ -70,7 +75,8 @@ def run_python(script: str) -> subprocess.CompletedProcess[str]:
 
 
 def run_source(
-  source_text: str, options: Sequence[str] = ()
+  source_text: str, options: Sequence[str] = (), *,
+  program_arguments: Sequence[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
   """
   Run an inline UTF-8 program from a system temporary directory.
@@ -83,7 +89,7 @@ def run_source(
     source_path = Path(temporary_directory) / "program.pyind"
     source_path.write_text(source_text, encoding="utf-8")
 
-    return run_program(source_path, options)
+    return run_program(source_path, options, program_arguments=program_arguments)
 
 
 def assert_program_result(

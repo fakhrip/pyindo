@@ -9,6 +9,7 @@ from pyindo.runtime import (
   EX_NOINPUT,
   EX_SOFTWARE,
   ensure_supported_runtime,
+  execution_arguments,
 )
 
 
@@ -18,23 +19,25 @@ def help(exit_code: int = EX_USAGE) -> None:
   """
 
   print(
-    "Usage: python main.py [input file] [options]\n"
+    "Usage: python main.py [input file] [options] [-- program arguments]\n"
     "\n"
     "Compile and run a program written in the PyIndo language.\n"
     "\n"
     "Available options:\n"
     "  -O      Accepted for compatibility; no optimizer is enabled.\n"
-    "  -D      Also write bytecode disassembly to [input stem].dis."
+    "  -D      Also write bytecode disassembly to [input stem].dis.\n"
+    "  --      Pass remaining arguments verbatim to the program."
   )
 
   raise SystemExit(exit_code)
 
 
-def parse_argument(arguments: Sequence[str] | None = None) -> tuple[Path, dict]:
+def parse_argument(arguments: Sequence[str] | None = None) -> tuple[Path, dict, tuple[str, ...]]:
   """
   Parse a source path and trailing options without changing sys.argv.
 
-  Return the source path and enabled options. Invalid usage exits 64;
+  Return the source path, enabled options, and user arguments after --.
+  Invalid usage exits 64;
   a missing or non-file input exits 66 with an input diagnostic.
   """
 
@@ -46,8 +49,13 @@ def parse_argument(arguments: Sequence[str] | None = None) -> tuple[Path, dict]:
 
   source_path = Path(arguments[0])
   enabled_options = {}
+  user_arguments = ()
 
-  for argument in arguments[1:]:
+  for index, argument in enumerate(arguments[1:], start=1):
+    if argument == "--":
+      user_arguments = tuple(arguments[index + 1:])
+      break
+
     match argument:
       case "-O":
         enabled_options["optimization"] = True
@@ -60,7 +68,7 @@ def parse_argument(arguments: Sequence[str] | None = None) -> tuple[Path, dict]:
     print(f"Could not open file: {source_path}")
     raise SystemExit(EX_NOINPUT)
 
-  return (source_path.resolve(), enabled_options)
+  return (source_path.resolve(), enabled_options, user_arguments)
 
 
 def write_disassembly(code: CodeType, source_path: Path) -> None:
@@ -102,7 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     return EX_USAGE
 
   try:
-    source_path, enabled_options = parse_argument(argv)
+    source_path, enabled_options, user_arguments = parse_argument(argv)
   except SystemExit as usage_exit:
     return usage_exit.code
 
@@ -133,7 +141,8 @@ def main(argv: Sequence[str] | None = None) -> int:
   }
 
   # -O remains accepted but cannot change module scope or name lookup.
-  exec(code, execution_namespace)
+  with execution_arguments(user_arguments):
+    exec(code, execution_namespace)
 
   if enabled_options.get("debug_output"):
     try:

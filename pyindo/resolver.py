@@ -335,8 +335,20 @@ def _analyze_program(program: Program) -> ProgramSymbols:
   if "utama" not in signatures:
     raise PyIndoError("Entrypoint is not exist, you should create it first using `utama` function")
 
-  if signatures["utama"].parameters:
-    raise PyIndoError("Entrypoint 'utama' must not take arguments", signatures["utama"].span)
+  entry_signature = signatures["utama"]
+  if len(entry_signature.parameters) not in (0, 2):
+    raise PyIndoError("Entrypoint 'utama' requires zero or two parameters", entry_signature.span)
+
+  if entry_signature.parameters:
+    entry_function = next(function for function in program.functions if function.name == "utama")
+    valid_arguments = (("himpunan", "campuran"), ("himpunan", "apapun"))
+    if entry_signature.parameter_types[0] not in valid_arguments:
+      raise PyIndoError(
+        "Entrypoint argument list must be himpunan<campuran> or himpunan<apapun>",
+        entry_function.parameters[0].annotation.span,
+      )
+    if entry_signature.parameter_types[1] != "desimal":
+      raise PyIndoError("Entrypoint argument count must be desimal", entry_function.parameters[1].annotation.span)
 
   for function in program.functions:
     parameters = signatures[function.name].parameters

@@ -17,6 +17,8 @@ from pyindo.types import TypeSpec
 
 PREPARE_VALUE_NAME = "<pyindo:prepare_typed_value>"
 PREPARE_CONSTANT_NAME = "<pyindo:prepare_typed_constant>"
+INVOKE_ENTRYPOINT_NAME = "<pyindo:invoke_entrypoint>"
+ENTRYPOINT_RESULT_NAME = "<pyindo:entrypoint_result>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -498,18 +500,25 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
   """
 
   symbols = analyze_program(program)
-  instructions = [Instr("RESUME", 0, lineno=1)]
+  instructions = [
+    Instr("RESUME", 0, lineno=1),
+    # Clear a previous main result even when this execution only imports definitions.
+    Instr("LOAD_CONST", None, lineno=1), Instr("STORE_NAME", ENTRYPOINT_RESULT_NAME, lineno=1),
+  ]
 
-  helpers = [("prepare_typed_value", PREPARE_VALUE_NAME)]
+  helpers = [
+    ("pyindo.type_checks", "prepare_typed_value", PREPARE_VALUE_NAME),
+    ("pyindo.runtime", "invoke_entrypoint", INVOKE_ENTRYPOINT_NAME),
+  ]
   if any(scope.constant_names for scope in symbols.scopes.values()):
-    helpers.append(("prepare_typed_constant", PREPARE_CONSTANT_NAME))
+    helpers.append(("pyindo.type_checks", "prepare_typed_constant", PREPARE_CONSTANT_NAME))
 
-  for helper_name, global_name in helpers:
+  for module_name, helper_name, global_name in helpers:
     # An impossible source identifier avoids collisions and caller-side injection.
     instructions.extend([
       Instr("LOAD_CONST", 0, lineno=1),
       Instr("LOAD_CONST", (helper_name,), lineno=1),
-      Instr("IMPORT_NAME", (False, False, "pyindo.type_checks"), lineno=1),
+      Instr("IMPORT_NAME", (False, False, module_name), lineno=1),
       Instr("IMPORT_FROM", helper_name, lineno=1),
       Instr("STORE_NAME", global_name, lineno=1),
       Instr("POP_TOP", lineno=1),
@@ -533,9 +542,11 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
     Instr("LOAD_NAME", "__name__"), Instr("LOAD_CONST", "__main__"),
     Instr("COMPARE_OP", Compare.EQ), Instr("TO_BOOL"),
     Instr("POP_JUMP_IF_FALSE", module_exit),
-    Instr("LOAD_NAME", "utama"), Instr("PUSH_NULL"), Instr("CALL", 0),
-    # A language return value never becomes the CLI's process exit status.
-    Instr("POP_TOP"), module_exit,
+    Instr("LOAD_NAME", INVOKE_ENTRYPOINT_NAME), Instr("PUSH_NULL"),
+    Instr("LOAD_NAME", "utama"), Instr("LOAD_CONST", len(symbols.signatures["utama"].parameters)),
+    Instr("CALL", 2),
+    # Library execution records a raw result; only the CLI interprets process status.
+    Instr("STORE_NAME", ENTRYPOINT_RESULT_NAME), module_exit,
     Instr("LOAD_CONST", None), Instr("RETURN_VALUE"),
   ])
   bytecode = Bytecode(instructions)

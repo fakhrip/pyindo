@@ -86,10 +86,11 @@ fungsi utama(): apapun { tampilkan(second(10), first(0)); }
     assert_program_result(run_compiled(source), "")
     assert_program_result(run_compiled(source, module_name="__main__"), "5")
 
-  def test_entrypoint_return_is_discarded(self):
+  def test_entrypoint_return_is_recorded_without_exiting_library_execution(self):
     source = "fungsi utama(): apapun { hasilkan 1337; tampilkan(1); }"
 
-    assert_program_result(run_compiled(source, module_name="__main__"), "")
+    assertions = "assert namespace['<pyindo:entrypoint_result>'] == 1337\nassert namespace['utama']() == 1337"
+    assert_program_result(run_compiled(source, assertions, module_name="__main__"), "")
 
   def test_intrinsic_print_has_a_value_and_preserves_concatenation(self):
     source = """fungsi empty(): apapun { hasilkan tampilkan(); }

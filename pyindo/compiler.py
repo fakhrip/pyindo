@@ -145,32 +145,44 @@ def comparison(
 
 
 def condition(
-    expressions: list,
-    statements: list,
-    other_statements: list,
-    c_type: str,
-    jump_label: Union[Label, None],
-    condition_label: Union[Label, None],
+  expressions: list,
+  statements: list,
+  other_statements: list,
+  c_type: str,
+  jump_label: Union[Label, None],
+  condition_label: Union[Label, None],
 ) -> list:
-    bytecodes = []
+  """
+  Emit a braced if/else branch using abstract destination labels.
 
-    match c_type:
-        case "selainnya":
-            bytecodes.extend(statements)
-        case "selainnya jika" | "jika":
-            bytecodes.extend(expressions)
+  Convert condition results to exact Booleans before a conditional jump;
+  CPython 3.15 does not accept arbitrary truthy objects at that boundary.
+  """
 
-            if condition_label:
-                bytecodes.append(Instr("POP_JUMP_IF_FALSE", condition_label))
+  bytecodes = []
 
-            bytecodes.extend(statements)
+  match c_type:
+    case "selainnya":
+      bytecodes.extend(statements)
 
-            if jump_label:
-                bytecodes.append(Instr("JUMP_FORWARD", jump_label))
+    case "selainnya jika" | "jika":
+      bytecodes.extend(expressions)
 
-            bytecodes.extend(other_statements)
+      if condition_label is not None:
+        bytecodes.extend([
+          Instr("TO_BOOL"),
+          Instr("POP_JUMP_IF_FALSE", condition_label),
+        ])
 
-    return bytecodes
+      bytecodes.extend(statements)
+
+      # A taken branch skips the remaining alternatives in the same chain.
+      if jump_label is not None:
+        bytecodes.append(Instr("JUMP_FORWARD", jump_label))
+
+      bytecodes.extend(other_statements)
+
+  return bytecodes
 
 
 def format_print(args: list, line_number: int, is_global_scope: bool) -> list:
@@ -219,97 +231,91 @@ def format_print(args: list, line_number: int, is_global_scope: bool) -> list:
 
 
 def call_function(
-    function_name: str, function_params: list, line_number: int, is_global_scope: bool
+  function_name: str, function_params: list, line_number: int, is_global_scope: bool
 ) -> list:
-    bytecodes = []
+  """
+  Emit a statement call, delegating tampilkan to the formatting helper.
 
-    match function_name:
-        case "tampilkan":
-            bytecodes = format_print(function_params, line_number, is_global_scope)
-            return bytecodes
+  User functions currently take no arguments. Discard only the call's
+  result; the enclosing function or module must continue to its next statement.
+  """
 
-    bytecodes.append(Instr("LOAD_NAME", function_name))
+  if function_name == "tampilkan":
+    return format_print(function_params, line_number, is_global_scope)
 
-    if len(function_params) > 0:
-        bytecodes.extend(
-            [
-                # TODO:
-                # Add function params bytecode to the function call
-                # if there are any
-            ]
-        )
+  if function_params:
+    raise ValueError("User-function arguments are not supported yet")
 
-    bytecodes.extend(
-        [
-            Instr("CALL_FUNCTION", 0),
-            Instr("POP_TOP"),
-            Instr("LOAD_CONST", None),
-            Instr("RETURN_VALUE"),
-        ]
-    )
+  bytecodes = []
 
-    return bytecodes
+  # Both loading paths leave callable, NULL on the stack in that order.
+  if is_global_scope:
+    bytecodes.extend([
+      Instr("LOAD_NAME", function_name, lineno=line_number),
+      Instr("PUSH_NULL"),
+    ])
+  else:
+    bytecodes.append(Instr("LOAD_GLOBAL", (True, function_name), lineno=line_number))
+
+  bytecodes.extend([
+    Instr("CALL", 0),
+    Instr("POP_TOP"),
+  ])
+
+  return bytecodes
 
 
 def define_function_content(
-    function_name: str,
-    function_bytecodes: dict,
-    is_entrypoint_function: bool,
-    line_number: int,
-) -> Tuple[list, CodeType]:
-    bytecodes = []
-    bytecode_codechunk = None
+  function_name: str,
+  function_bytecodes: dict,
+  is_entrypoint_function: bool,
+  line_number: int,
+) -> Tuple[list, CodeType | None]:
+  """
+  Assemble a function body and return its definition instructions/code object.
 
-    if is_entrypoint_function:
-        # Function content definition for entrypoint
-        tail_bytecodes, tail_label = function_bytecodes["tail"]
-        bytecodes.extend(
-            [
-                *function_bytecodes["header"],
-                Instr("POP_JUMP_IF_FALSE", tail_label),
-                *function_bytecodes["content"],
-            ]
-        )
+  utama remains inline under the module's __main__ guard for this milestone.
+  Other named functions receive a separate code object and their own return.
+  """
 
-        if len(function_bytecodes["content"]) > 0 and isinstance(
-            function_bytecodes["content"][-1], Label
-        ):
-            bytecodes.extend(tail_bytecodes[1:])
+  bytecodes = []
+  function_codechunk = None
 
-        bytecodes.extend(tail_bytecodes)
-    else:
-        # Function content definition for other functions
-        if function_name:
-            # Not an anonymous function so need to compile the function and
-            # store its identifier in the bytecode
-            compiled_bytecode = compile_bytecodes(
-                [*function_bytecodes["content"], *function_bytecodes["tail"][0]]
-            )
-            bytecode_codechunk = compiled_bytecode.to_code()
+  if is_entrypoint_function:
+    tail_bytecodes, module_exit_label = function_bytecodes["tail"]
 
-            bytecodes.extend(
-                [
-                    *function_bytecodes["header"],
-                    Instr("LOAD_CONST", bytecode_codechunk),
-                    Instr("LOAD_CONST", function_name),
-                    Instr(
-                        "MAKE_FUNCTION",
-                        4 if len(function_bytecodes["header"]) > 0 else 0,
-                    ),
-                    Instr("STORE_NAME", function_name),
-                ]
-            )
-        else:
-            # This is an anonymous function which means that we dont have to
-            # compile the function and store its identifier in the bytecode
-            bytecodes.extend(
-                [
-                    *function_bytecodes["header"],
-                    *function_bytecodes["content"],
-                ]
-            )
+    # The guard consumes its Boolean and skips the inline entrypoint when
+    # code is inspected under a namespace other than __main__.
+    bytecodes.extend([
+      *function_bytecodes["header"],
+      Instr("TO_BOOL"),
+      Instr("POP_JUMP_IF_FALSE", module_exit_label),
+      *function_bytecodes["content"],
+      *tail_bytecodes,
+    ])
+  elif function_name:
+    compiled_bytecode = compile_bytecodes(
+      [*function_bytecodes["content"], *function_bytecodes["tail"][0]],
+      name=function_name,
+    )
+    function_codechunk = compiled_bytecode.to_code()
 
-    return (bytecodes, bytecode_codechunk)
+    # MAKE_FUNCTION now consumes only the code object. An old qualname
+    # constant or flag operand would corrupt the definition's stack layout.
+    bytecodes.extend([
+      *function_bytecodes["header"],
+      Instr("LOAD_CONST", function_codechunk, lineno=line_number),
+      Instr("MAKE_FUNCTION"),
+      Instr("STORE_NAME", function_name),
+    ])
+  else:
+    # Preserve the parser's existing inline anonymous-block representation.
+    bytecodes.extend([
+      *function_bytecodes["header"],
+      *function_bytecodes["content"],
+    ])
+
+  return (bytecodes, function_codechunk)
 
 
 def define_function_tail(is_entrypoint_function: bool) -> Tuple[list, Label]:

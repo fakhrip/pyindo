@@ -46,9 +46,11 @@ Options go after the input path:
   file, including helper functions. This is text, not an executable `.pyc`.
 - `-O` is retained for compatibility and currently does nothing. It does not
   change code-object scope flags or enable a language optimizer.
+- `--` ends compiler options and passes the remaining tokens to the program.
 
-Successful runs exit 0. Usage or unsupported-runtime errors exit 64, unreadable
-inputs exit 66, and compiler/syntax errors exit 70.
+The result of `utama` selects the process status: `None` means 0, and exact
+integers from 0 through 255 select that code. Usage or unsupported-runtime errors
+exit 64, unreadable inputs exit 66, and compiler/syntax errors exit 70.
 
 If you are curious as to how this works, please go to [how it works](#how-it-works) section.
 
@@ -58,16 +60,17 @@ You can find all program examples of pyindo language in the [`tests/`](./tests/)
 
 ## Current implementation status
 
-Milestone 5 requires type annotations and enforces scalar, function, and collection
-contracts on CPython 3.15. The larger v1 example below still includes roadmap features.
+Milestone 6 completes the README v1 example on CPython 3.15 with multiline
+strings, conditional expressions, typed program arguments, and CLI exit codes.
+Mandatory annotations and checked collection contracts remain enforced.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
 | Function-local `variabel`, `konstanta`, and mutable reassignment | Module variables, closures, and nested functions |
 | Typed positional parameters, nested calls, forward calls, and recursion | Default/keyword/variadic parameters and first-class functions |
-| Real `hasilkan` values, early returns, and implicit `None` on fallthrough | Program arguments and entrypoint-selected process exit status |
+| Real returns, typed argv/argc, and entrypoint-selected process status | Default/keyword/variadic entrypoint arguments |
 | Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place arithmetic |
-| Lazy `dan`/`&&`, `atau`/`||`, and logical `tidak`/`!` | Assignment expressions and conditional expressions |
+| Lazy logic, logical negation, and conditional expressions | Assignment expressions |
 | Nested conditions and single-statement `maka` arms | Unbraced compound arms and optional statement semicolons |
 | Braced `selama` and C-style `untuk`, `berhenti`, and `lewati` | Iterator/range loops and loop-else |
 | Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and augmented attribute/index targets |
@@ -75,7 +78,7 @@ contracts on CPython 3.15. The larger v1 example below still includes roadmap fe
 | Deeply immutable detached constant snapshots | Freezing arbitrary foreign Python objects |
 | `didalam` membership and contextual `tidak kosong` predicates | Infix `tidak didalam` and chained predicates |
 | Mandatory annotations, checked list copies, and runtime type contracts | General static expression inference and user-defined types |
-| Unicode strings, escapes, `${expression}`, and outside-string comments | Multiline strings and imports |
+| Unicode/multiline strings, escapes, `${expression}`, and comments | Imports and raw/byte string prefixes |
 
 ```pyindo
 fungsi utama(): kosong {
@@ -97,8 +100,8 @@ fungsi jumlah(angka_pertama: desimal, angka_kedua: desimal): desimal {
 
 This prints `hasil: 15`. All functions are defined before `utama` is called,
 so helpers may appear later in the file. Every program requires exactly one
-zero-argument `utama`. It runs once under the normal CLI; its returned value
-is discarded and a successful run exits 0. `hasilkan;` and falling through a
+`utama` with zero or two parameters. It runs once under the normal CLI; its result
+selects the process status as described below. `hasilkan;` and falling through a
 function return `None` when its return type is `kosong` or `apapun`.
 
 Variables and constants need initializers. Parameters start initialized;
@@ -118,6 +121,20 @@ and `/` is true division. Identifiers use ASCII letters, digits, and underscores
 starting with a letter or underscore; strings can contain Unicode. Keywords
 are complete words. Functions cannot be named `tampilkan`, `print`, `__name__`,
 `__file__`, or `__builtins__`, which are reserved for printing/module execution.
+
+### Multiline strings
+
+Both `"""..."""` and `'''...'''` allow physical newlines and preserve indentation,
+tabs, blank lines, and leading/trailing whitespace. There is no automatic dedent
+or removal of a newline after the opening quotes. Raw LF, CRLF, and CR line endings
+decode to LF; an explicit `\r` escape remains a carriage return.
+
+Only the first unescaped matching triple delimiter closes the literal. One or two
+matching quotes and opposite quotes remain text. Escapes and `${expression}` work
+as in ordinary strings, including nested multiline strings inside interpolation.
+Comment markers in literal text remain text. Ordinary single-delimiter strings
+still reject raw newlines, and backslash followed by a physical newline remains
+unsupported. Adjacent literal concatenation and string prefixes are not enabled.
 
 ### Control flow
 
@@ -186,7 +203,7 @@ source declarations and explicit writes to constants remain errors.
 conditional-arm statement: a declaration, assignment/update, indexed deletion,
 call, return, break, or continue. It also works for `selainnya jika` and
 `selainnya maka`. Compound if/loop arms and all loop bodies require braces.
-Multiline strings and conditional expressions remain future work.
+Statement semicolons remain required, including in single-statement maka arms.
 
 ### Mandatory types
 
@@ -228,6 +245,44 @@ statement that never executes does not cause a runtime error.
 logical operators return selected operands, and arithmetic keeps its native result
 rules. Python itself does not enforce annotation metadata, so PyIndo emits its own
 [runtime checks](https://docs.python.org/3.15/library/typing.html).
+
+### Program arguments and exit codes
+
+An entrypoint may take no parameters, or two parameters with types
+`himpunan<campuran>`/`himpunan<apapun>` and `desimal` (alias `angka`). Parameter
+names are arbitrary. The first value is a fresh checked argument list; `argv[0]`
+is the resolved absolute source path under the CLI, and `argc` is its initial
+length, including that path. Mutating argv does not change argc or host arguments.
+
+```pyindo
+fungsi utama(argv: himpunan<campuran>, argc: desimal): desimal {
+  tampilkan("jumlah: ", argc);
+  jika (argc > 1) maka tampilkan("|", argv[1]);
+  hasilkan 0;
+}
+```
+
+Use `python main.py program.pyind -D -- halo` to print `jumlah: 2|halo` and write
+disassembly. Compiler flags precede the first `--`; everything after it is program
+data, including `-D`, spaces, empty strings and another `--`. With no user arguments
+the example prints `jumlah: 1`. The source path must still be the first CLI argument.
+
+For either entrypoint form, `None` selects exit 0 and an exact integer 0–255 selects
+that status. Booleans and other types raise `TypeError`; out-of-range integers
+raise `ValueError`. These are runtime failures with native tracebacks/status 1.
+Ordinary return type contracts run first. A valid nonzero result still writes
+requested -D output; a disassembly write failure retains status 70. -O remains a
+compatibility no-op and preserves the selected status.
+
+Embedding keeps the compiler APIs unchanged. Imported execution only defines
+functions. `exec(code, {"__name__": "__main__"})` invokes the entrypoint and records
+its raw result under `<pyindo:entrypoint_result>` without exiting Python or
+validating process status. Ordinary function calls also retain raw return values.
+For embedding arguments, scope execution with
+`pyindo.runtime.execution_arguments(["hello"])`; nested/repeated executions restore
+their caller's arguments, and host `sys.argv` is unchanged. The program name comes
+from the entry function's current `co_filename`, including legacy filename overrides;
+the default is `<pyindo>`, and an injected `__file__` does not override that metadata.
 
 ### Collections and constant snapshots
 
@@ -343,8 +398,8 @@ fungsi utama(): kosong {
 }
 ```
 
-The following example combines existing syntax with planned features and is
-the intended v1 acceptance goal. See the status table above before trying it:
+The following complete v1 example is runnable. Its exact source and output are
+checked in `tests/test_v1_acceptance.py`:
 ```pyindo
 fungsi jumlah(angka1: desimal, angka2: desimal): desimal {
   hasilkan angka1 + angka2;
@@ -370,15 +425,15 @@ fungsi utama(argv: himpunan<apapun>, argc: desimal): desimal {
     jika(c adalah 20) maka berhenti;
 
     jika(c <= 10) maka
-      tampilkan("${'#' * 25}")
+      tampilkan("${'#' * 25}");
     selainnya {
-      tampilkan("#${' ' * 23}#")
+      tampilkan("#${' ' * 23}#");
     }
   }
 
-  tampilkan("Apakah angka 1 ada didalam himpunan [1, 2, 3, 4, 5] ? ${'ya' jika 1 didalam [1, 2, 3, 4, 5] selainnya 'tidak'}")
+  tampilkan("Apakah angka 1 ada didalam himpunan [1, 2, 3, 4, 5] ? ${'ya' jika 1 didalam [1, 2, 3, 4, 5] selainnya 'tidak'}");
 
-  tampilkan("Proses penghapusan angka pada himpunan diatas:")
+  tampilkan("Proses penghapusan angka pada himpunan diatas:");
   variabel beberapa_angka: himpunan<angka> = [1, 2, 3, 4, 5];
   selama(beberapa_angka tidak kosong) {
     hapus beberapa_angka[0];
@@ -389,7 +444,8 @@ fungsi utama(argv: himpunan<apapun>, argc: desimal): desimal {
 }
 ```
 
-That example program also functioned as our current main goal to develop the language (in other words, v1 of the language will be out whenever that program [and other test programs] can be run successfully without any trouble).
+This was the project's original v1 acceptance goal. The regression suite now checks
+it through both compiler APIs, marshal round trips, and normal/-O/-D CLI execution.
 
 ## Language quirks
 
@@ -419,12 +475,21 @@ tidak == not || !
 
 Also note that we introduced new keyword in this language that are unique just to this language such as `maka`, so in order for you to understand the whole language syntax, you can see some of examples exist inside the [`tests/`](./tests/) directory.
 
-### Planned conditional expressions
+### Conditional expressions
 
-There are no ternary operator in this language, and instead, we follow the pythonic syntax for this one which is to create one line if statement like this:  
+Use `true_value jika condition selainnya false_value` to select a value:
 ```pyindo
-tampilkan("apakah 1 sama dengan 1 ? ${'ya' jika 1 adalah 1 selainnya 'tidak'}")
+tampilkan("apakah 1 sama dengan 1 ? ${'ya' jika 1 adalah 1 selainnya 'tidak'}");
 ```
+
+The condition runs first and only the selected arm runs. The selected value keeps
+its type and identity until an enclosing type contract prepares it. Static name,
+arity and initialization checks still inspect both arms. The conditional binds
+below `atau` and associates right in the false arm; group a nested conditional in
+the condition or true arm. These rules follow
+[Python's conditional expressions](https://docs.python.org/3.15/reference/expressions.html#conditional-expressions).
+It is an expression inside calls, assignments, returns, list/index expressions and
+interpolation; standalone conditional-expression statements remain unsupported.
 
 ### Single-statement condition arms
 

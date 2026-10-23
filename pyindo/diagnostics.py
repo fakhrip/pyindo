@@ -33,6 +33,7 @@ class SourceMap:
   """
 
   def __init__(self, source_text: str):
+    # Count each physical newline once without changing original character offsets.
     self.line_starts = [0]
     self.line_starts.extend(
       match.end() for match in SOURCE_NEWLINE_PATTERN.finditer(source_text)

@@ -6,8 +6,8 @@ from bytecode.instr import InstrLocation
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Call, CallStatement, Declaration, If, InterpolatedString,
-  Literal, Logical, Name, Program, Return, Unary,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
+  Declaration, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
 
@@ -24,12 +24,20 @@ COMPARISON_OPERATIONS = {
 
 
 @dataclass
+class LoopTargets:
+  break_label: Label
+  continue_label: Label
+  continue_opcode: str
+
+
+@dataclass
 class EmissionContext:
   scope: FunctionScope
   signatures: dict[str, FunctionSignature]
   source_text: str
   filename: str
   source_lines: list[str] = field(init=False)
+  loop_targets: list[LoopTargets] = field(default_factory=list)
 
   def __post_init__(self):
     self.source_lines = self.source_text.split("\n")
@@ -167,6 +175,27 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
       context.instruction("STORE_FAST", statement.target, span=statement.span),
     ]
 
+  if isinstance(statement, (Break, Continue)):
+    if not context.loop_targets:
+      raise PyIndoError("Loop control requires an enclosing loop", statement.span)
+
+    targets = context.loop_targets[-1]
+    opcode = "JUMP_FORWARD" if isinstance(statement, Break) else targets.continue_opcode
+    label = targets.break_label if isinstance(statement, Break) else targets.continue_label
+    return [context.instruction(opcode, label, span=statement.span)]
+
+  if isinstance(statement, While):
+    condition_label, exit_label = Label(), Label()
+    return [
+      condition_label, *emit_expression(statement.condition, context),
+      context.instruction("TO_BOOL", span=statement.condition.span, has_argument=False),
+      context.instruction("POP_JUMP_IF_FALSE", exit_label, span=statement.condition.span),
+      *emit_loop_body(
+        statement.body, context, LoopTargets(exit_label, condition_label, "JUMP_BACKWARD"),
+      ),
+      context.instruction("JUMP_BACKWARD", condition_label, span=statement.span), exit_label,
+    ]
+
   if isinstance(statement, CallStatement):
     return [
       *emit_expression(statement.call, context),
@@ -210,6 +239,26 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
     return instructions
 
   raise TypeError(f"Unknown statement node: {type(statement).__name__}")
+
+
+def emit_loop_body(body, context: EmissionContext, targets: LoopTargets) -> list[Instr | Label]:
+  """
+  Emit a stack-neutral body with targets owned by this loop alone.
+
+  Always restore the enclosing target stack, including when nested emission
+  fails. Each function has a fresh context and cannot inherit caller targets.
+  """
+
+  instructions = []
+  context.loop_targets.append(targets)
+
+  try:
+    for statement in body:
+      instructions.extend(emit_statement(statement, context))
+  finally:
+    context.loop_targets.pop()
+
+  return instructions
 
 
 def compile_function(function, scope, *, signatures, source_text, filename) -> CodeType:

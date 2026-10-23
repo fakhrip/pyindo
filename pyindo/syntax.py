@@ -3,8 +3,9 @@ from dataclasses import replace
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Call, CallStatement, Declaration, Function, If,
-  InterpolatedString, Literal, Logical, Name, Parameter, Program, Return, Unary,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
+  Declaration, Function, If, InterpolatedString, Literal, Logical, Name,
+  Parameter, Program, Return, Unary, While,
 )
 
 
@@ -19,7 +20,7 @@ BINDING_POWER = {
   "**": (70, 60),
 }
 UNSUPPORTED = {
-  "maka", "untuk", "selama", "berhenti", "lewati", "cocokkan", "hapus",
+  "maka", "untuk", "cocokkan", "hapus",
   "didalam", ":", "[", "]",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
@@ -141,6 +142,15 @@ class Parser:
     if opening.text == "jika":
       return self.parse_if()
 
+    if opening.text == "selama":
+      return self.parse_while()
+
+    if opening.text in ("berhenti", "lewati"):
+      self.advance()
+      closing = self.expect(";")
+      node_type = Break if opening.text == "berhenti" else Continue
+      return node_type(opening.span.through(closing.span))
+
     statement = self.parse_simple_statement()
     closing = self.expect(";")
 
@@ -220,6 +230,19 @@ class Parser:
       break
 
     return If(branches, else_body, opening.span.through(closing.span))
+
+  def parse_while(self) -> While:
+    """
+    Parse a nonempty while condition and a body that owns its closing brace.
+    """
+
+    opening = self.expect("selama")
+    self.expect("(")
+    condition = self.parse_expression()
+    self.expect(")")
+    body, closing = self.parse_block()
+
+    return While(condition, body, opening.span.through(closing.span))
 
   def parse_expression(self, minimum_power: int = 0):
     """

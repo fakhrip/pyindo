@@ -96,7 +96,24 @@ class If:
   span: SourceSpan
 
 
-type Statement = Declaration | Assignment | AugmentedAssignment | Return | CallStatement | If
+@dataclass(frozen=True)
+class While:
+  condition: Expression
+  body: list["Statement"]
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
+class Break:
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
+class Continue:
+  span: SourceSpan
+
+
+type Statement = Declaration | Assignment | AugmentedAssignment | Return | CallStatement | If | While | Break | Continue
 
 
 @dataclass(frozen=True)

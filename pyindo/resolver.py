@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Call, CallStatement, Declaration, If,
-  InterpolatedString, Literal, Logical, Name, Program, Return, Unary,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
+  Declaration, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
 )
 
 
@@ -31,6 +31,25 @@ class ProgramSymbols:
   scopes: dict[str, FunctionScope]
 
 
+@dataclass
+class FlowResult:
+  initialized: set[str]
+  falls_through: bool
+  breaks: set[str] | None = None
+  continues: set[str] | None = None
+
+
+def _meet_exit_states(current: set[str] | None, incoming: set[str] | None) -> set[str] | None:
+  """
+  Intersect real exit paths; an empty set is a path, while None is absent.
+  """
+
+  if current is None:
+    return None if incoming is None else set(incoming)
+
+  return set(current) if incoming is None else current & incoming
+
+
 def _declarations(body):
   for statement in body:
     if isinstance(statement, Declaration):
@@ -41,6 +60,8 @@ def _declarations(body):
 
       if statement.else_body is not None:
         yield from _declarations(statement.else_body)
+    elif isinstance(statement, While):
+      yield from _declarations(statement.body)
 
 
 class FunctionAnalyzer:
@@ -101,63 +122,100 @@ class FunctionAnalyzer:
     else:
       raise TypeError(f"Unknown expression node: {type(expression).__name__}")
 
-  def block(self, body, initialized: set[str]) -> tuple[set[str], bool]:
+  def block(self, body, initialized: set[str], *, loop_depth: int = 0) -> FlowResult:
     """
-    Return initialized names and whether the block can reach its successor.
+    Track live exits separately from the source-order diagnostic cursor.
 
-    Continue validating unreachable source, but retain its terminated state
-    so it cannot add initialized names to a live branch merge.
+    Dead suffixes are still checked, but cannot revive fallthrough or add
+    break/continue paths to a later loop-update initialization merge.
+    """
+
+    flow = FlowResult(set(initialized), True)
+
+    for statement in body:
+      statement_flow = self.statement(statement, flow.initialized, loop_depth=loop_depth)
+
+      if flow.falls_through:
+        flow.breaks = _meet_exit_states(flow.breaks, statement_flow.breaks)
+        flow.continues = _meet_exit_states(flow.continues, statement_flow.continues)
+        flow.falls_through = statement_flow.falls_through
+
+      flow.initialized = statement_flow.initialized
+
+    return flow
+
+  def statement(self, statement, initialized: set[str], *, loop_depth: int) -> FlowResult:
+    """
+    Validate one statement and classify its normal or nearest-loop exits.
     """
 
     initialized = set(initialized)
-    can_fall_through = True
 
-    for statement in body:
-      if isinstance(statement, Declaration):
+    if isinstance(statement, Declaration):
+      self.expression(statement.value, initialized)
+      initialized.add(statement.name)
+    elif isinstance(statement, (Assignment, AugmentedAssignment)):
+      self.require_initialized(statement.target, statement.span, initialized)
+
+      if statement.target in self.scope.constant_names:
+        raise PyIndoError(f"Cannot reassign constant '{statement.target}'", statement.span)
+
+      self.expression(statement.value, initialized)
+    elif isinstance(statement, Return):
+      if statement.value is not None:
         self.expression(statement.value, initialized)
-        initialized.add(statement.name)
-      elif isinstance(statement, (Assignment, AugmentedAssignment)):
-        self.require_initialized(statement.target, statement.span, initialized)
 
-        if statement.target in self.scope.constant_names:
-          raise PyIndoError(f"Cannot reassign constant '{statement.target}'", statement.span)
+      return FlowResult(initialized, False)
+    elif isinstance(statement, CallStatement):
+      self.expression(statement.call, initialized)
+    elif isinstance(statement, (Break, Continue)):
+      if loop_depth == 0:
+        keyword = "berhenti" if isinstance(statement, Break) else "lewati"
+        raise PyIndoError(f"'{keyword}' is only allowed inside a loop", statement.span)
 
-        self.expression(statement.value, initialized)
-      elif isinstance(statement, Return):
-        if statement.value is not None:
-          self.expression(statement.value, initialized)
+      return FlowResult(
+        initialized, False,
+        breaks=initialized if isinstance(statement, Break) else None,
+        continues=initialized if isinstance(statement, Continue) else None,
+      )
+    elif isinstance(statement, If):
+      return self.analyze_if(statement, initialized, loop_depth=loop_depth)
+    elif isinstance(statement, While):
+      self.expression(statement.condition, initialized)
+      self.block(statement.body, initialized, loop_depth=loop_depth + 1)
+      # A possible zero-iteration path retains only incoming initialization.
+      # This loop consumes its own break/continue exits, including nested ones.
+    else:
+      raise TypeError(f"Unknown statement node: {type(statement).__name__}")
 
-        can_fall_through = False
-      elif isinstance(statement, CallStatement):
-        self.expression(statement.call, initialized)
-      elif isinstance(statement, If):
-        incoming = set(initialized)
-        falling_states = []
+    return FlowResult(initialized, True)
 
-        for condition, branch_body in statement.branches:
-          self.expression(condition, incoming)
-          branch_state, branch_falls = self.block(branch_body, incoming)
+  def analyze_if(self, statement: If, initialized: set[str], *, loop_depth: int) -> FlowResult:
+    """
+    Join normal paths and loop-control exits without counting returning arms.
+    """
 
-          if branch_falls:
-            falling_states.append(branch_state)
+    branches = []
 
-        if statement.else_body is None:
-          # An absent else leaves a path on which no branch executed.
-          falling_states.append(incoming)
-        else:
-          else_state, else_falls = self.block(statement.else_body, incoming)
+    for condition, body in statement.branches:
+      self.expression(condition, initialized)
+      branches.append(self.block(body, initialized, loop_depth=loop_depth))
 
-          if else_falls:
-            falling_states.append(else_state)
+    branches.append(
+      FlowResult(set(initialized), True) if statement.else_body is None
+      else self.block(statement.else_body, initialized, loop_depth=loop_depth)
+    )
+    normal_states = [branch.initialized for branch in branches if branch.falls_through]
+    result = FlowResult(
+      set.intersection(*normal_states) if normal_states else set(initialized),
+      bool(normal_states),
+    )
 
-        if falling_states:
-          initialized = set.intersection(*falling_states)
-        else:
-          can_fall_through = False
-      else:
-        raise TypeError(f"Unknown statement node: {type(statement).__name__}")
+    for branch in branches:
+      result.breaks = _meet_exit_states(result.breaks, branch.breaks)
+      result.continues = _meet_exit_states(result.continues, branch.continues)
 
-    return initialized, can_fall_through
+    return result
 
 
 def _analyze_program(program: Program) -> ProgramSymbols:

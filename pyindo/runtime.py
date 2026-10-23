@@ -65,3 +65,22 @@ def invoke_entrypoint(entrypoint: Callable[..., object], parameter_count: int) -
 
   arguments = [entrypoint.__code__.co_filename, *_USER_ARGUMENTS.get()]
   return entrypoint(arguments, len(arguments))
+
+
+def entrypoint_exit_status(result: object) -> int:
+  """
+  Map an entrypoint result to a portable process status without coercing values.
+
+  This boundary belongs to the CLI. Library execution and ordinary function
+  calls keep their raw return values, including values outside the status range.
+  """
+
+  if result is None:
+    return 0
+  if type(result) is not int:
+    raise TypeError(
+      f"Entrypoint exit status must be an integer or None, got {type(result).__name__}"
+    )
+  if not 0 <= result <= 255:
+    raise ValueError("Entrypoint exit status must be between 0 and 255")
+  return result

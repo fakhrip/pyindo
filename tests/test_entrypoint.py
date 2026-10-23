@@ -122,3 +122,63 @@ assert arguments == original and sys.argv == host
     self.assertEqual(result.returncode, 1)
     self.assertIn("TypeError", result.stderr)
 
+  def test_exit_status_boundary_values(self):
+    for value, expected in ((None, 0), (0, 0), (1, 1), (255, 255)):
+      self.assertEqual(runtime.entrypoint_exit_status(value), expected)
+
+    class Integer(int):
+      pass
+
+    for value in (True, False, "1", 1.0, object(), Integer(1)):
+      with self.assertRaises(TypeError):
+        runtime.entrypoint_exit_status(value)
+    for value in (-1, 256, 1337):
+      with self.assertRaises(ValueError):
+        runtime.entrypoint_exit_status(value)
+    for parameters in ("", "argv: himpunan<campuran>, argc: desimal"):
+      for value in (0, 7, 255):
+        source = f"fungsi utama({parameters}): desimal {{ hasilkan {value}; }}"
+        assert_program_result(run_source(source), "", value)
+      for expression, error in (("benar", "TypeError"), ('"bad"', "TypeError"),
+                                ("-1", "ValueError"), ("256", "ValueError")):
+        result = run_source(f"fungsi utama({parameters}): apapun {{ hasilkan {expression}; }}")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(error, result.stderr)
+
+  def test_nonzero_results_preserve_debug_and_context_cleanup(self):
+    with tempfile.TemporaryDirectory(prefix="pyindo exit ") as directory:
+      source_path = Path(directory) / "status é.pyind"
+      source_path.write_text("fungsi utama(): desimal { hasilkan 7; }", encoding="utf-8")
+      original = source_path.read_bytes()
+      for options in (("-D",), ("-O", "-D")):
+        assert_program_result(run_program(source_path, options), "", 7)
+        self.assertIn("utama", source_path.with_suffix(".dis").read_text(encoding="utf-8"))
+        self.assertEqual(source_path.read_bytes(), original)
+      invalid_path = Path(directory) / "invalid.pyind"
+      invalid_path.write_text("fungsi utama(): apapun { hasilkan benar; }", encoding="utf-8")
+      self.assertEqual(run_program(invalid_path, ("-D",)).returncode, 1)
+      self.assertFalse(invalid_path.with_suffix(".dis").exists())
+      script = """import sys
+from unittest.mock import patch
+from main import main
+from pyindo.runtime import execution_arguments, invoke_entrypoint
+""" + f"source_path = {str(source_path)!r}\ninvalid_path = {str(invalid_path)!r}\n" + """host = sys.argv[:]
+def inspect_arguments(argv, argc):
+  return argv[1:]
+with execution_arguments(['outer']):
+  with patch('main.write_disassembly', side_effect=OSError('write failed')):
+    assert main([source_path, '-D', '--', 'inner']) == 70
+  try:
+    main([invalid_path, '--', 'bad'])
+  except TypeError:
+    pass
+  else:
+    raise AssertionError('invalid status accepted')
+  assert invoke_entrypoint(inspect_arguments, 2) == ['outer']
+assert invoke_entrypoint(inspect_arguments, 2) == []
+assert main([source_path]) == 7 and sys.argv == host
+"""
+      result = run_python(script)
+      self.assertEqual(result.returncode, 0)
+      self.assertEqual(result.stdout, "")
+      self.assertIn("Could not write disassembly: write failed", result.stderr)

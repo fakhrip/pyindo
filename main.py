@@ -10,6 +10,7 @@ from pyindo.runtime import (
   EX_SOFTWARE,
   ensure_supported_runtime,
   execution_arguments,
+  entrypoint_exit_status,
 )
 
 
@@ -36,9 +37,8 @@ def parse_argument(arguments: Sequence[str] | None = None) -> tuple[Path, dict, 
   """
   Parse a source path and trailing options without changing sys.argv.
 
-  Return the source path, enabled options, and user arguments after --.
-  Invalid usage exits 64;
-  a missing or non-file input exits 66 with an input diagnostic.
+  Return the resolved source path, enabled options, and user arguments after --.
+  Invalid usage exits 64; a missing or non-file input exits 66 with a diagnostic.
   """
 
   if arguments is None:
@@ -117,6 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
   # Keep dependency loading behind the runtime and command-line checks.
   from pyindo.compiler import compile_source
   from pyindo.diagnostics import PyIndoError, format_error
+  from pyindo.emitter import ENTRYPOINT_RESULT_NAME
 
   try:
     source_text = source_path.read_text(encoding="utf-8")
@@ -144,6 +145,9 @@ def main(argv: Sequence[str] | None = None) -> int:
   with execution_arguments(user_arguments):
     exec(code, execution_namespace)
 
+  # Process status is a CLI boundary, after argument cleanup and before debug I/O.
+  exit_status = entrypoint_exit_status(execution_namespace[ENTRYPOINT_RESULT_NAME])
+
   if enabled_options.get("debug_output"):
     try:
       write_disassembly(code, source_path)
@@ -151,7 +155,7 @@ def main(argv: Sequence[str] | None = None) -> int:
       print(f"Could not write disassembly: {output_error}", file=sys.stderr)
       return EX_SOFTWARE
 
-  return 0
+  return exit_status
 
 
 if __name__ == "__main__":

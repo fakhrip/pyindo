@@ -149,8 +149,8 @@ class CliTests(unittest.TestCase):
 
     assert_program_result(run_python(script), "source.pyind helper\n")
 
-  def test_entrypoint_return_does_not_choose_the_cli_status(self):
-    assert_program_result(run_source("fungsi utama(): apapun { hasilkan 1337; }"), "")
+  def test_entrypoint_return_chooses_the_cli_status(self):
+    assert_program_result(run_source("fungsi utama(): desimal { hasilkan 7; }"), "", 7)
 
   def test_source_complexity_limit_has_a_structured_diagnostic(self):
     source = "fungsi utama(): apapun { hasilkan 1" + " + 1" * 1200 + "; }"

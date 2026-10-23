@@ -39,6 +39,19 @@ class Logical:
 
 
 @dataclass(frozen=True)
+class ListLiteral:
+  items: list["Expression"]
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
+class Index:
+  container: "Expression"
+  index: "Expression"
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Call:
   callee: str
   arguments: list["Expression"]
@@ -51,7 +64,7 @@ class InterpolatedString:
   span: SourceSpan
 
 
-type Expression = Literal | Name | Unary | Binary | Logical | Call | InterpolatedString
+type Expression = Literal | Name | Unary | Binary | Logical | ListLiteral | Index | Call | InterpolatedString
 
 
 @dataclass(frozen=True)

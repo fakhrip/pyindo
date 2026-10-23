@@ -2,9 +2,64 @@ import operator
 import unittest
 
 from pyindo.values import freeze_constant_value
+from tests.fixture_runner import assert_program_result, run_python, run_source
 
 
 class ConstantCollectionTests(unittest.TestCase):
+  def test_compiled_constant_snapshots_are_detached_and_protected(self):
+    source = """fungsi snapshot(value) { konstanta saved = value; hasilkan saved; }
+fungsi __pyindo_freeze_constant__() { hasilkan 22; }
+fungsi utama() { tampilkan(__pyindo_freeze_constant__()); }
+"""
+    script = (
+      "from pyindo.compiler import compile_source\n"
+      "namespace = {'__name__': 'inspection'}\n"
+      f"exec(compile_source({source!r}), namespace)\n"
+      "original = [[1]]\n"
+      "saved = namespace['snapshot'](original)\n"
+      "original[0][0] = 9\n"
+      "assert saved == [[1]] and original == [[9]]\n"
+      "try:\n"
+      "  saved[0][0] = 7\n"
+      "except TypeError:\n"
+      "  pass\n"
+      "else:\n"
+      "  raise AssertionError('mutable nested constant')\n"
+      "assert namespace['snapshot'](2 + 3j) == 2 + 3j\n"
+    )
+    assert_program_result(run_python(script), "")
+    assert_program_result(run_source(source), "22")
+
+  def test_snapshot_import_works_in_facade_and_marshal_round_trips(self):
+    source = "fungsi make() { konstanta saved = [[1]]; hasilkan saved; } fungsi utama() {}"
+    script = (
+      "import marshal\n"
+      "from pyindo.compiler import compile_source, compile_bytecodes\n"
+      "from pyindo.parser import parse_program\n"
+      f"source = {source!r}\n"
+      "codes = [compile_source(source, filename='café.pyind')]\n"
+      "for sentinel in ('', '\\0'):\n"
+      "  instructions, chunks = parse_program(source + sentinel)\n"
+      "  assert [chunk.co_name for chunk in chunks] == ['make', 'utama']\n"
+      "  codes.append(compile_bytecodes(instructions, filename='café.pyind').to_code())\n"
+      "for code in codes:\n"
+      "  namespace = {'__name__': 'inspection'}\n"
+      "  exec(marshal.loads(marshal.dumps(code)), namespace)\n"
+      "  assert namespace['make']() == [[1]]\n"
+      "  assert namespace['make'].__code__.co_filename == 'café.pyind'\n"
+    )
+    assert_program_result(run_python(script), "")
+
+  def test_repeated_constant_declarations_take_new_snapshots(self):
+    source = """fungsi utama() {
+  untuk (variabel index = 0; index < 2; index++) {
+    konstanta saved = [index];
+    tampilkan(saved);
+  }
+}
+"""
+    assert_program_result(run_source(source), "[0][1]")
+
   def test_snapshot_is_deep_and_detached(self):
     original = [[1]]
     snapshot = freeze_constant_value(original)
@@ -128,4 +183,3 @@ class ConstantCollectionTests(unittest.TestCase):
     self.assertLess(freeze_constant_value([1j, 0]), [1j, 1])
     with self.assertRaises(TypeError):
       _ = freeze_constant_value([1j]) < [2j]
-

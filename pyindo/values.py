@@ -123,4 +123,3 @@ def freeze_constant_value(value: object) -> object:
   """
 
   return _freeze_value(value, {}, set())
-

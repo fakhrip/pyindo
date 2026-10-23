@@ -4,7 +4,7 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, For, Function, If, InterpolatedString, Literal, Logical, Name,
+  Declaration, For, Function, If, Index, InterpolatedString, ListLiteral, Literal, Logical, Name,
   Parameter, Program, Return, Unary, While,
 )
 
@@ -21,7 +21,7 @@ BINDING_POWER = {
 }
 UNSUPPORTED = {
   "cocokkan", "hapus",
-  "didalam", ":", "[", "]",
+  "didalam", ":",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
 
@@ -306,7 +306,7 @@ class Parser:
       operand = self.parse_expression(60)
       expression = Unary(opening.text, operand, opening.span.through(operand.span))
     else:
-      expression = self.parse_primary()
+      expression = self.parse_postfix()
 
     compared = False
 
@@ -336,12 +336,47 @@ class Parser:
 
     return expression
 
+  def parse_postfix(self):
+    """
+    Attach index suffixes to one primary without introducing callable expressions.
+    """
+
+    expression = self.parse_primary()
+
+    while self.match("["):
+      index = self.parse_expression()
+      closing = self.expect("]")
+      expression = Index(expression, index, expression.span.through(closing.span))
+
+    return expression
+
+  def parse_list(self) -> ListLiteral:
+    """
+    Own a fresh list display and permit one trailing comma between its brackets.
+    """
+
+    opening = self.expect("[")
+    items = []
+
+    if self.current.text != "]":
+      while True:
+        items.append(self.parse_expression())
+
+        if not self.match(",") or self.current.text == "]":
+          break
+
+    closing = self.expect("]")
+    return ListLiteral(items, opening.span.through(closing.span))
+
   def parse_primary(self):
     """
     Parse one literal, grouped expression, local name, or direct named call.
     """
 
     token = self.current
+
+    if token.text == "[":
+      return self.parse_list()
 
     if self.match("("):
       expression = self.parse_expression()

@@ -7,10 +7,13 @@ from bytecode.instr import InstrLocation
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, For, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
+  Declaration, For, If, Index, InterpolatedString, ListLiteral, Literal, Logical, Name,
+  Program, Return, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, analyze_program
 
+
+FREEZE_CONSTANT_NAME = "<pyindo:freeze_constant>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -72,6 +75,23 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
 
   if isinstance(expression, Name):
     return [instruction("LOAD_FAST_CHECK", expression.identifier)]
+
+  if isinstance(expression, ListLiteral):
+    instructions = []
+
+    for item in expression.items:
+      instructions.extend(emit_expression(item, context))
+
+    # Build even empty lists at runtime; mutable instances never enter co_consts.
+    instructions.append(instruction("BUILD_LIST", len(expression.items)))
+    return instructions
+
+  if isinstance(expression, Index):
+    return [
+      *emit_expression(expression.container, context),
+      *emit_expression(expression.index, context),
+      instruction("BINARY_OP", BinaryOp.SUBSCR),
+    ]
 
   if isinstance(expression, InterpolatedString):
     instructions = []
@@ -209,6 +229,15 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
   """
   Emit a stack-neutral statement, or terminate the current frame with a return.
   """
+
+  if isinstance(statement, Declaration) and statement.is_constant:
+    # Snapshot before binding: later aliases can never mutate constant contents.
+    return [
+      context.instruction("LOAD_GLOBAL", (True, FREEZE_CONSTANT_NAME), span=statement.span),
+      *emit_expression(statement.value, context),
+      context.instruction("CALL", 1, span=statement.span),
+      context.instruction("STORE_FAST", statement.name, span=statement.span),
+    ]
 
   if isinstance(statement, (Declaration, Assignment)):
     name = statement.name if isinstance(statement, Declaration) else statement.target
@@ -370,6 +399,17 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
 
   symbols = analyze_program(program)
   instructions = [Instr("RESUME", 0, lineno=1)]
+
+  if any(scope.constant_names for scope in symbols.scopes.values()):
+    # An impossible source identifier avoids collisions and caller-side injection.
+    instructions.extend([
+      Instr("LOAD_CONST", 0, lineno=1),
+      Instr("LOAD_CONST", ("freeze_constant_value",), lineno=1),
+      Instr("IMPORT_NAME", (False, False, "pyindo.values"), lineno=1),
+      Instr("IMPORT_FROM", "freeze_constant_value", lineno=1),
+      Instr("STORE_NAME", FREEZE_CONSTANT_NAME, lineno=1),
+      Instr("POP_TOP", lineno=1),
+    ])
 
   for function in program.functions:
     try:

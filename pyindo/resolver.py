@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
-  Declaration, For, If, InterpolatedString, Literal, Logical, Name, Program, Return, Unary, While,
+  Declaration, For, If, Index, InterpolatedString, ListLiteral, Literal, Logical, Name,
+  Program, Return, Unary, While,
 )
 
 
@@ -105,6 +106,12 @@ class FunctionAnalyzer:
       self.require_initialized(expression.identifier, expression.span, initialized)
     elif isinstance(expression, Unary):
       self.expression(expression.operand, initialized)
+    elif isinstance(expression, ListLiteral):
+      for item in expression.items:
+        self.expression(item, initialized)
+    elif isinstance(expression, Index):
+      self.expression(expression.container, initialized)
+      self.expression(expression.index, initialized)
     elif isinstance(expression, (Binary, Logical)):
       # Runtime laziness never hides invalid bindings or calls from analysis.
       self.expression(expression.left, initialized)

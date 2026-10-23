@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pyindo.diagnostics import SourceSpan
 
@@ -207,7 +207,24 @@ class Function:
 
 
 @dataclass(frozen=True)
+class ImportBinding:
+  name: str
+  alias: str
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
+class Import:
+  path: str
+  bindings: list[ImportBinding]
+  namespace: str | None
+  span: SourceSpan
+  path_span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Program:
   functions: list[Function]
   source_text: str
   span: SourceSpan
+  imports: list[Import] = field(default_factory=list)

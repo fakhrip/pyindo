@@ -4,7 +4,8 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
-  Declaration, Delete, For, ForEach, Function, If, Index, IndexedAssignment, InterpolatedString,
+  Declaration, Delete, For, ForEach, Function, If, Import, ImportBinding, Index,
+  IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Parameter, Program, Return, TypeAnnotation, Unary, While,
 )
@@ -115,6 +116,38 @@ class Parser:
       name.text, parameters, body, opening.span.through(closing.span), name_span=name.span,
       return_annotation=return_annotation,
     )
+
+  def parse_import(self) -> Import:
+    """
+    Read a top-level file import while keeping its keywords contextual.
+    """
+
+    opening = self.advance()
+    path = self.current
+    if path.kind != TokenKind.STRING:
+      raise self.expected("literal module path")
+
+    self.advance()
+    literal = self.parse_string(path)
+    if not isinstance(literal, Literal) or not isinstance(literal.value, str) or not literal.value:
+      raise PyIndoError("Module path must be a nonempty string without interpolation", path.span)
+
+    bindings = []
+    namespace = None
+    if opening.text == "impor":
+      self.expect("sebagai")
+      namespace = self.expect_name("module alias").text
+    else:
+      self.expect("impor")
+      while True:
+        name = self.expect_name("imported function name")
+        alias = self.expect_name("import alias") if self.match("sebagai") else name
+        bindings.append(ImportBinding(name.text, alias.text, name.span.through(alias.span)))
+        if not self.match(","):
+          break
+
+    closing = self.expect(";")
+    return Import(literal.value, bindings, namespace, opening.span.through(closing.span), path.span)
 
   def parse_type_annotation(self) -> TypeAnnotation:
     """
@@ -509,8 +542,16 @@ class Parser:
 
     if token.kind == TokenKind.NAME:
       self.advance()
+      callee = token.text
+      qualified = self.match(".")
+
+      if qualified:
+        member = self.expect_name("imported function name")
+        callee += "." + member.text
 
       if not self.match("("):
+        if qualified:
+          raise self.expected("'(' after a qualified function name")
         return Name(token.text, token.span)
 
       arguments = []
@@ -523,7 +564,7 @@ class Parser:
             break
 
       closing = self.expect(")")
-      return Call(token.text, arguments, token.span.through(closing.span))
+      return Call(callee, arguments, token.span.through(closing.span))
 
     raise self.expected("expression")
 
@@ -556,7 +597,7 @@ class Parser:
 
 def parse_module(source_text: str) -> Program:
   """
-  Parse top-level function declarations; semantic validation follows separately.
+  Parse top-level imports and functions; semantic validation follows separately.
   """
 
   parser = None
@@ -564,11 +605,15 @@ def parse_module(source_text: str) -> Program:
   try:
     parser = Parser(source_text)
     functions = []
+    imports = []
 
     while parser.current.kind != TokenKind.EOF:
-      functions.append(parser.parse_function())
+      if parser.current.text in ("dari", "impor"):
+        imports.append(parser.parse_import())
+      else:
+        functions.append(parser.parse_function())
 
-    return Program(functions, source_text, parser.tokens[0].span.through(parser.current.span))
+    return Program(functions, source_text, parser.tokens[0].span.through(parser.current.span), imports)
   except RecursionError as complexity_error:
     span = parser.current.span if parser is not None else SourceMap(source_text).span(0, 0)
     raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, span) from complexity_error

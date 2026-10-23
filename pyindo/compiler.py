@@ -1,8 +1,9 @@
 from types import CodeType
 from typing import Tuple, Union
-from bytecode import Compare, Instr, Bytecode, Label
+from bytecode import BinaryOp, Compare, Instr, Bytecode, Label
 
 from pyindo.types import LiteralString
+from pyindo.runtime import ensure_supported_runtime
 
 import re
 import codecs
@@ -72,42 +73,45 @@ def bool_operation(
 
 
 def math_operation(
-    l_operand: tuple or list or str, r_operand: tuple or str or None, o_type: str
+  l_operand: tuple | list | str,
+  r_operand: tuple | str | None,
+  o_type: str,
 ) -> list:
-    bytecodes = []
-    if isinstance(l_operand, tuple) or isinstance(l_operand, str):
-        bytecodes.append(load_const_or_name(l_operand))
+  """
+  Load both operands and emit one CPython 3.15 binary operation.
+
+  Operands may be typed literals, names, or already emitted instructions.
+  Return the instructions with the expression result left on the stack.
+  """
+
+  bytecodes = []
+
+  for operand in (l_operand, r_operand):
+    if operand is None:
+      continue
+
+    if isinstance(operand, (tuple, str)):
+      bytecodes.append(load_const_or_name(operand))
     else:
-        bytecodes.extend(l_operand)
+      bytecodes.extend(operand)
 
-    if r_operand:
-        bytecodes.append(load_const_or_name(r_operand))
+  operation_by_symbol = {
+    "+": BinaryOp.ADD,
+    "-": BinaryOp.SUBTRACT,
+    "/": BinaryOp.TRUE_DIVIDE,
+    "*": BinaryOp.MULTIPLY,
+    "&": BinaryOp.AND,
+    "%": BinaryOp.REMAINDER,
+    "|": BinaryOp.OR,
+    "<<": BinaryOp.LSHIFT,
+    ">>": BinaryOp.RSHIFT,
+    "**": BinaryOp.POWER,
+  }
 
-    match o_type:
-        case "+":
-            bytecodes.append(Instr("BINARY_ADD"))
-        case "-":
-            bytecodes.append(Instr("BINARY_SUBTRACT"))
-        case "/":
-            bytecodes.append(Instr("BINARY_TRUE_DIVIDE"))
-        case "*":
-            bytecodes.append(Instr("BINARY_MULTIPLY"))
-        case "*":
-            bytecodes.append(Instr("BINARY_MULTIPLY"))
-        case "&":
-            bytecodes.append(Instr("BINARY_AND"))
-        case "%":
-            bytecodes.append(Instr("BINARY_MODULO"))
-        case "|":
-            bytecodes.append(Instr("BINARY_OR"))
-        case "<<":
-            bytecodes.append(Instr("BINARY_LSHIFT"))
-        case ">>":
-            bytecodes.append(Instr("BINARY_RSHIFT"))
-        case "**":
-            bytecodes.append(Instr("BINARY_POWER"))
+  # BINARY_OP consumes left/right operands and leaves one result.
+  bytecodes.append(Instr("BINARY_OP", operation_by_symbol[o_type]))
 
-    return bytecodes
+  return bytecodes
 
 
 def comparison(
@@ -170,38 +174,48 @@ def condition(
 
 
 def format_print(args: list, line_number: int, is_global_scope: bool) -> list:
-    bytecodes = []
+  """
+  Build one output string and call print with an empty end argument.
 
-    bytecodes.append(
-        Instr(
-            "LOAD_NAME" if is_global_scope else "LOAD_GLOBAL",
-            "print",
-            lineno=line_number,
-        )
-    )
+  Literal text and interpolation instructions retain their source order.
+  Discard print's result so subsequent statements start with a clean stack.
+  """
 
-    computed_args_len = 0
-    for arg in args:
-        match arg:
-            case (v_value, v_type) if v_type == LiteralString:
-                bytecodes.append(Instr("LOAD_CONST", decode_escapes(v_value)))
-                computed_args_len += 1
-            case list(_) as arg_bytecodes if len(arg_bytecodes) > 0:
-                bytecodes.extend(arg)
-                bytecodes.append(Instr("FORMAT_VALUE", 0))
-                computed_args_len += 1
+  bytecodes = []
 
-    bytecodes.extend(
-        [
-            Instr("BUILD_STRING", computed_args_len),
-            Instr("LOAD_CONST", ""),
-            Instr("LOAD_CONST", ("end",)),
-            Instr("CALL_FUNCTION_KW", 2),
-            Instr("POP_TOP"),
-        ]
-    )
+  # CPython 3.15 calls expect the callable followed by NULL, then arguments.
+  # LOAD_GLOBAL can push both entries; LOAD_NAME needs an explicit NULL.
+  if is_global_scope:
+    bytecodes.extend([
+      Instr("LOAD_NAME", "print", lineno=line_number),
+      Instr("PUSH_NULL"),
+    ])
+  else:
+    bytecodes.append(Instr("LOAD_GLOBAL", (True, "print"), lineno=line_number))
 
-    return bytecodes
+  string_part_count = 0
+
+  for argument in args:
+    match argument:
+      case (literal_value, literal_type) if literal_type == LiteralString:
+        bytecodes.append(Instr("LOAD_CONST", decode_escapes(literal_value)))
+        string_part_count += 1
+
+      case list(_) as expression_bytecodes if expression_bytecodes:
+        bytecodes.extend(expression_bytecodes)
+        bytecodes.append(Instr("FORMAT_SIMPLE"))
+        string_part_count += 1
+
+  # Join the pieces, pass end="" as a keyword, and discard the None result.
+  bytecodes.extend([
+    Instr("BUILD_STRING", string_part_count),
+    Instr("LOAD_CONST", ""),
+    Instr("LOAD_CONST", ("end",)),
+    Instr("CALL_KW", 2),
+    Instr("POP_TOP"),
+  ])
+
+  return bytecodes
 
 
 def call_function(
@@ -354,5 +368,37 @@ def define_function_wrapper(
     return (bytecodes, define_function_tail(is_entrypoint_function))
 
 
-def compile_bytecodes(bytecodes: list) -> Bytecode:
-    return Bytecode(bytecodes)
+def compile_bytecodes(
+  bytecodes: list,
+  *,
+  filename: str = "<pyindo>",
+  name: str = "<module>",
+) -> Bytecode:
+  """
+  Assemble abstract instructions with source metadata and a valid fallthrough.
+
+  Return a Bytecode object; to_code() resolves labels, inline caches, and
+  stack size. Reject other runtimes before assembling version-specific code.
+  """
+
+  ensure_supported_runtime()
+  instructions = list(bytecodes)
+
+  if not instructions or not isinstance(instructions[0], Instr) or instructions[0].name != "RESUME":
+    instructions.insert(0, Instr("RESUME", 0, lineno=1))
+
+  # Every reachable fallthrough must return; ordinary code does not receive
+  # a scope-optimization flag simply because it has been compiled.
+  if not isinstance(instructions[-1], Instr) or not instructions[-1].is_final():
+    instructions.extend([
+      Instr("LOAD_CONST", None),
+      Instr("RETURN_VALUE"),
+    ])
+
+  compiled_bytecode = Bytecode(instructions)
+  compiled_bytecode.filename = filename
+  compiled_bytecode.name = name
+  compiled_bytecode.qualname = name
+  compiled_bytecode.first_lineno = 1
+
+  return compiled_bytecode

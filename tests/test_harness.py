@@ -52,9 +52,6 @@ class FixtureHarnessTests(unittest.TestCase):
       self.assertEqual(completed_process.stdout, f"{source_path}\nexpected")
       self.assertEqual(completed_process.stderr, "failure\n")
 
-      with self.assertRaises(AssertionError):
-        fixture_runner.assert_program_result(completed_process, "expected")
-
   def test_preserves_output_whitespace(self):
     completed_process = subprocess.CompletedProcess([], 0, "  halo\n\n", "")
 
@@ -62,6 +59,25 @@ class FixtureHarnessTests(unittest.TestCase):
 
     with self.assertRaises(AssertionError):
       fixture_runner.assert_program_result(completed_process, "halo\n")
+
+  def test_rejects_a_crash_after_exact_expected_stdout(self):
+    with tempfile.TemporaryDirectory() as temporary_directory:
+      compiler_path = Path(temporary_directory) / "crash_after_output.py"
+      compiler_path.write_text(
+        "import sys\nprint('expected', end='')\nsys.exit(1)\n",
+        encoding="utf-8",
+      )
+
+      with patch.object(fixture_runner, "COMPILER_PATH", compiler_path):
+        completed_process = fixture_runner.run_program(Path("unused.pyind"))
+
+    # Only the exit status differs: no output or stderr mismatch may hide
+    # a regression that accidentally stops checking the child's return code.
+    self.assertEqual(completed_process.stdout, "expected")
+    self.assertEqual(completed_process.stderr, "")
+
+    with self.assertRaises(AssertionError):
+      fixture_runner.assert_program_result(completed_process, "expected")
 
   def test_times_out_hung_children(self):
     with tempfile.TemporaryDirectory() as temporary_directory:

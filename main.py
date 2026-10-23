@@ -41,7 +41,7 @@ def parse_argument(arguments: Sequence[str] | None = None) -> tuple[Path, dict]:
   if arguments is None:
     arguments = sys.argv[1:]
 
-  if not arguments:
+  if not arguments or arguments[0].startswith("-"):
     help()
 
   source_path = Path(arguments[0])
@@ -122,7 +122,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     code = compiled_bytecode.to_code()
   except SystemExit as compilation_exit:
     return compilation_exit.code
-  except (ValueError, RuntimeError) as compilation_error:
+  except Exception as compilation_error:
+    # Malformed input can still trigger built-in exceptions in the legacy
+    # parser. Keep compilation failures here; program execution stays separate.
     print(f"Compiler Error: {compilation_error}")
     return EX_SOFTWARE
 

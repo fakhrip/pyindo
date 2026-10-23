@@ -17,7 +17,7 @@ class CliTests(unittest.TestCase):
   def test_no_input_and_unknown_options_report_usage(self):
     source_path = REPOSITORY_PATH / "tests" / "success" / "hello_world.pyind"
 
-    for arguments in ([], [str(source_path), "-unknown"]):
+    for arguments in ([], ["-unknown"], ["-D"], [str(source_path), "-unknown"]):
       with self.subTest(arguments=arguments):
         completed_process = subprocess.run(
           [sys.executable, str(COMPILER_PATH), *arguments],
@@ -45,6 +45,18 @@ class CliTests(unittest.TestCase):
     expected_output = source_path.with_suffix(".output").read_text(encoding="utf-8")
 
     assert_program_result(run_program(source_path), expected_output, 70)
+
+
+  def test_malformed_condition_stays_inside_the_compilation_error_boundary(self):
+    with tempfile.TemporaryDirectory() as temporary_directory:
+      source_path = Path(temporary_directory) / "empty_condition.pyind"
+      source_path.write_text("fungsi utama() { jika () {} }", encoding="utf-8")
+
+      completed_process = run_program(source_path)
+
+    self.assertEqual(completed_process.returncode, 70)
+    self.assertIn("Compiler Error:", completed_process.stdout)
+    self.assertEqual(completed_process.stderr, "")
 
   def test_main_can_be_called_repeatedly_without_changing_sys_argv(self):
     source_path = REPOSITORY_PATH / "tests" / "success" / "hello_world.pyind"

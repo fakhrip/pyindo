@@ -221,3 +221,22 @@ for code in codes:
     self.assertEqual(result.returncode, 70)
     self.assertIn("line number 1", result.stdout)
     self.assertNotIn("Traceback", result.stdout + result.stderr)
+
+  def test_typed_metadata_and_helper_names(self):
+    source = """fungsi __pyindo_prepare_typed_value__(value: desimal): desimal {
+  variabel text: campuran = "café ☕"; variabel count: desimal = value;
+  hasilkan count;
+}
+fungsi utama(): kosong {}
+"""
+    assertions = """import dis
+function = namespace['__pyindo_prepare_typed_value__']
+assert function(7) == 7
+assert function.__code__.co_varnames == ('value', 'text', 'count')
+instructions = list(dis.get_instructions(function))
+assert all(item.opname == 'LOAD_FAST_CHECK' for item in instructions if item.opname.startswith('LOAD_FAST'))
+guards = [item for item in instructions if item.opname == 'LOAD_GLOBAL' and item.argval == '<pyindo:prepare_typed_value>']
+""" + f"line = {source.splitlines()[1]!r}\n" + """expected = len(line[:line.index('variabel count')].encode('utf-8'))
+assert any(item.positions.lineno == 2 and item.positions.col_offset == expected for item in guards)
+"""
+    assert_program_result(run_compiled(source, assertions), "")

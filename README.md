@@ -58,13 +58,13 @@ You can find all program examples of pyindo language in the [`tests/`](./tests/)
 
 ## Current implementation status
 
-Milestone 4 adds collections and deeply immutable constant snapshots on CPython 3.15.
-The larger typed v1 example below remains a roadmap. The supported subset is untyped:
+Milestone 5 requires type annotations and enforces scalar, function, and collection
+contracts on CPython 3.15. The larger v1 example below still includes roadmap features.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
 | Function-local `variabel`, `konstanta`, and mutable reassignment | Module variables, closures, and nested functions |
-| Positional parameters, nested call expressions, forward calls, and recursion | Typed/default/keyword/variadic parameters and first-class functions |
+| Typed positional parameters, nested calls, forward calls, and recursion | Default/keyword/variadic parameters and first-class functions |
 | Real `hasilkan` values, early returns, and implicit `None` on fallthrough | Program arguments and entrypoint-selected process exit status |
 | Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place arithmetic |
 | Lazy `dan`/`&&`, `atau`/`||`, and logical `tidak`/`!` | Assignment expressions and conditional expressions |
@@ -74,12 +74,13 @@ The larger typed v1 example below remains a roadmap. The supported subset is unt
 | Fresh nested list literals, indexed reads/writes, and indexed `hapus` | Slices, dictionaries/sets, comprehensions, methods, and unpacking |
 | Deeply immutable detached constant snapshots | Freezing arbitrary foreign Python objects |
 | `didalam` membership and contextual `tidak kosong` predicates | Infix `tidak didalam` and chained predicates |
-| Unicode strings, escapes, `${expression}`, and outside-string comments | Multiline strings, imports, and type checking |
+| Mandatory annotations, checked list copies, and runtime type contracts | General static expression inference and user-defined types |
+| Unicode strings, escapes, `${expression}`, and outside-string comments | Multiline strings and imports |
 
 ```pyindo
-fungsi utama() {
-  konstanta batas = 10;
-  variabel total = jumlah(2, 3);
+fungsi utama(): kosong {
+  konstanta batas: desimal = 10;
+  variabel total: desimal = jumlah(2, 3);
   total = total + batas;
 
   jika (total >= 10) {
@@ -89,7 +90,7 @@ fungsi utama() {
   }
 }
 
-fungsi jumlah(angka_pertama, angka_kedua) {
+fungsi jumlah(angka_pertama: desimal, angka_kedua: desimal): desimal {
   hasilkan angka_pertama + angka_kedua;
 }
 ```
@@ -98,7 +99,7 @@ This prints `hasil: 15`. All functions are defined before `utama` is called,
 so helpers may appear later in the file. Every program requires exactly one
 zero-argument `utama`. It runs once under the normal CLI; its returned value
 is discarded and a successful run exits 0. `hasilkan;` and falling through a
-function return `None`.
+function return `None` when its return type is `kosong` or `apapun`.
 
 Variables and constants need initializers. Parameters start initialized;
 other names may be read only after initialization on every path that reaches
@@ -121,16 +122,16 @@ are complete words. Functions cannot be named `tampilkan`, `print`, `__name__`,
 ### Control flow
 
 ```pyindo
-fungsi utama() {
-  variabel total = 0;
+fungsi utama(): kosong {
+  variabel total: desimal = 0;
 
-  untuk (variabel angka = 0; angka < 6; angka++) {
+  untuk (variabel angka: desimal = 0; angka < 6; angka++) {
     jika (angka adalah 2) maka lewati;
     jika (angka adalah 5) maka berhenti;
     total += angka;
   }
 
-  variabel sisa = 2;
+  variabel sisa: desimal = 2;
 
   selama (sisa > 0 dan total > 0) {
     sisa -= 1;
@@ -139,7 +140,7 @@ fungsi utama() {
   cetak(total);
 }
 
-fungsi cetak(nilai) {
+fungsi cetak(nilai: desimal): kosong {
   tampilkan(nilai);
 }
 ```
@@ -185,14 +186,55 @@ source declarations and explicit writes to constants remain errors.
 conditional-arm statement: a declaration, assignment/update, indexed deletion,
 call, return, break, or continue. It also works for `selainnya jika` and
 `selainnya maka`. Compound if/loop arms and all loop bodies require braces.
-Typed declarations, multiline strings, and conditional expressions remain future work.
+Multiline strings and conditional expressions remain future work.
+
+### Mandatory types
+
+Every variable, constant, parameter, and function return needs an annotation.
+Reassignments retain the binding's declared type. The old unannotated syntax is
+rejected; existing examples and regression programs have been migrated in place.
+
+| Type | Values |
+| --- | --- |
+| `desimal`, `angka` | Exact Python integer; `angka` is an alias |
+| `pecahan` | Exact Python float |
+| `campuran` | Exact Python string |
+| `logika` | Exact Python Boolean |
+| `kosong` | `None`, including `tampilkan`'s result |
+| `apapun` | Any value, including `None` and foreign Python objects |
+| `himpunan<T>` | Lists whose elements satisfy `T`, including nested list types |
+
+Scalar checks are exact: `benar` is not a `desimal`, integer `1` is not a
+`pecahan`, and there are no implicit numeric conversions. Type names are
+contextual, so `angka` and `kosong` remain legal function/local names.
+
+Annotation structure, known type names, and return coverage are checked during
+compilation. A nonnullable function needs a value-return on every continuing
+path; an exhaustive returning if/else qualifies, while loops are conservatively
+possibly zero-iteration even with a true or omitted condition. `kosong` and
+`apapun` allow bare returns and fallthrough. Types do not establish initialization.
+
+Value contracts run at binding stores, after an augmented/postfix update computes
+its result, at parameter entry, and at returns. All caller arguments evaluate
+left to right before parameter checks; a mismatch prevents body execution.
+External Python callers receive the same checks. Failed assignments leave the
+previous binding unchanged. Mismatches raise native `TypeError` tracebacks with
+the expected/actual type, function/binding, source line, and nested element path.
+They exit 1 in the CLI; source annotation errors use the existing compile-error
+status 70. There is no general static expression inference: a wrong value in a
+statement that never executes does not cause a runtime error.
+
+`apapun` is an explicit dynamic escape hatch. Conditions retain Python truthiness,
+logical operators return selected operands, and arithmetic keeps its native result
+rules. Python itself does not enforce annotation metadata, so PyIndo emits its own
+[runtime checks](https://docs.python.org/3.15/library/typing.html).
 
 ### Collections and constant snapshots
 
 ```pyindo
-fungsi utama() {
-  variabel angka = [1, 2, 3];
-  konstanta awal = angka;
+fungsi utama(): kosong {
+  variabel angka: himpunan<desimal> = [1, 2, 3];
+  konstanta awal: himpunan<desimal> = angka;
 
   angka[0] = 9;
   tampilkan(awal, "|", angka, "|", 2 didalam angka, "|");
@@ -209,8 +251,30 @@ fungsi utama() {
 This prints `[1, 2, 3]|[9, 2, 3]|True|923[]`. Lists are ordered arrays, including
 empty `[]`, mixed values, nested lists, and a trailing comma such as `[1,]`.
 Every evaluation creates fresh lists; elements run once, from left to right.
-An ordinary assignment such as `variabel alias = angka;` shares the same list.
-The future type spelling `himpunan` refers to arrays, rather than mathematical sets.
+An ordinary assignment such as `variabel alias: himpunan<desimal> = angka;` shares the same list.
+The type spelling `himpunan` refers to arrays, rather than mathematical sets.
+
+An exact ordinary Python list entering `himpunan<T>` becomes an owned checked
+copy. Nested list nodes governed by `himpunan` are copied too; matching checked
+children preserve sharing within the conversion. Existing checked lists with the
+same normalized element type keep their identity across bindings, parameters,
+returns, and `apapun` aliases. Their indexed writes and ordinary host mutator
+methods reject incompatible incoming elements, including through those aliases.
+Batch type failures do not partially insert values. Index type/bounds errors
+precede element validation; each index protocol runs once.
+
+Mutable list contracts are invariant: a checked `himpunan<desimal>` cannot be
+passed as `himpunan<apapun>`, even when empty. A standalone `apapun` accepts it
+unchanged. Under `himpunan<apapun>`, nested raw values remain shared/unrestricted;
+only the typed outer node is copied. Separate conversions of the same raw list
+are independent. This checked conversion differs from a constant's deep snapshot.
+
+Checked values are private sequence objects, rather than Python `list` instances.
+Host integrations can obtain a native shallow outer copy with `list(value)`.
+Concatenation, repetition, host slicing, and `copy()` likewise yield native shallow
+outer lists; nested checked/frozen children retain their contracts. Source methods
+and slices remain unsupported. Source `+=` still adds/rebinds; host `+=` on a
+checked sequence mutates that object in place.
 
 Indexing binds above unary signs and power. Reads can be chained and can follow
 calls, strings, or grouping: `buat()[1][0]`, `"café"[-1]`, and `([7, 8])[0]`.
@@ -224,7 +288,7 @@ and removes that element; it does not delete the local binding. Both statements
 work in `maka` arms and for-header statement slots. Indexed `+=`/`++`, slices,
 multiple indices in one bracket pair, and variable deletion remain unsupported.
 
-`konstanta saved = original;` takes a deeply immutable snapshot of every nested
+`konstanta saved: apapun = original;` takes a deeply immutable snapshot of every nested
 list before binding `saved`. Later changes to `original` leave the snapshot
 unchanged. Aliases, parameters, and returned nested values referring to `saved`
 remain immutable. Direct writes/deletions through a known constant root are
@@ -241,7 +305,10 @@ complex, and string values, lists, and already frozen values. Cyclic lists raise
 `TypeError: Cannot freeze a cyclic collection`. When embedding the compiler,
 other Python objects, scalar/list subclasses, dictionaries, sets, and tuples in
 constant initializers also raise `TypeError`; ordinary variables retain their
-existing Python interoperability.
+existing Python interoperability through `apapun`. Checked lists are also valid
+snapshot input. Freezing happens before annotation validation, so even `apapun`
+constants reject cycles and unsupported objects. A frozen value accepted by a
+`himpunan<T>` annotation remains immutable.
 
 `item didalam values` returns an exact Boolean and evaluates item before values.
 It supports list equality membership and string substring membership. Negate it
@@ -271,7 +338,7 @@ test subprocesses so a backend failure cannot terminate the test runner itself.
 
 Entrypoint should be available for the compiler to run properly, it could be made like this:
 ```pyindo
-fungsi utama() {
+fungsi utama(): kosong {
   // Apapun isinya
 }
 ```
@@ -280,45 +347,45 @@ The following example combines existing syntax with planned features and is
 the intended v1 acceptance goal. See the status table above before trying it:
 ```pyindo
 fungsi jumlah(angka1: desimal, angka2: desimal): desimal {
-    hasilkan angka1 + angka2;
+  hasilkan angka1 + angka2;
 }
 
 fungsi utama(argv: himpunan<apapun>, argc: desimal): desimal {
-    konstanta b: angka = 100;
+  konstanta b: angka = 100;
 
-    tampilkan("Halo dunia, ini adalah contoh program menggunakan bahasa pyindo.");
-    tampilkan("""
-        Bahasa ini ditujukan untuk memudahkan para manusia di indonesia untuk bisa
-        mempelajari bahasa pemrograman tanpa terhalang oleh kesulitan dalam bahasa
-        inggris atau syntax yang terlalu cryptic (aneh bagi manusia).
-    """);
+  tampilkan("Halo dunia, ini adalah contoh program menggunakan bahasa pyindo.");
+  tampilkan("""
+    Bahasa ini ditujukan untuk memudahkan para manusia di indonesia untuk bisa
+    mempelajari bahasa pemrograman tanpa terhalang oleh kesulitan dalam bahasa
+    inggris atau syntax yang terlalu cryptic (aneh bagi manusia).
+  """);
 
-    untuk(c: desimal = 0; c bukan 20; c++) {
-        jika(c adalah 0 atau c adalah 21) {
-            tampilkan("=========================");
-            tampilkan("=========================");
-        }
-
-        jika(c adalah 0) maka lewati;
-        jika(c adalah 20) maka berhenti;
-
-        jika(c <= 10) maka
-            tampilkan("${'#' * 25}")
-        selainnya {
-            tampilkan("#${' ' * 23}#")
-        }
+  untuk(variabel c: desimal = 0; c bukan 20; c++) {
+    jika(c adalah 0 atau c adalah 21) {
+      tampilkan("=========================");
+      tampilkan("=========================");
     }
 
-    tampilkan("Apakah angka 1 ada didalam himpunan [1, 2, 3, 4, 5] ? ${'ya' jika 1 didalam [1, 2, 3, 4, 5] selainnya 'tidak'}")
+    jika(c adalah 0) maka lewati;
+    jika(c adalah 20) maka berhenti;
 
-    tampilkan("Proses penghapusan angka pada himpunan diatas:")
-    variabel beberapa_angka: himpunan<angka> = [1, 2, 3, 4, 5];
-    selama(beberapa_angka tidak kosong) {
-        hapus beberapa_angka[0];
-        tampilkan(beberapa_angka);
+    jika(c <= 10) maka
+      tampilkan("${'#' * 25}")
+    selainnya {
+      tampilkan("#${' ' * 23}#")
     }
+  }
 
-    hasilkan 0;
+  tampilkan("Apakah angka 1 ada didalam himpunan [1, 2, 3, 4, 5] ? ${'ya' jika 1 didalam [1, 2, 3, 4, 5] selainnya 'tidak'}")
+
+  tampilkan("Proses penghapusan angka pada himpunan diatas:")
+  variabel beberapa_angka: himpunan<angka> = [1, 2, 3, 4, 5];
+  selama(beberapa_angka tidak kosong) {
+    hapus beberapa_angka[0];
+    tampilkan(beberapa_angka);
+  }
+
+  hasilkan 0;
 }
 ```
 
@@ -333,6 +400,9 @@ campuran == string
 himpunan == array
 pecahan == float
 desimal == int
+angka == desimal
+logika == bool
+kosong == None
 konstanta == const
 variabel == var || let
 fungsi == function || def || fun
@@ -384,8 +454,8 @@ The main reason behind this creation is just to learn and explore how to build a
 These are the steps of the compilation process:
 
 1. Tokenize the source with character-based locations, then parse a small AST.
-2. Resolve function signatures and local bindings; check arity, constants, and initialization paths.
-3. Emit CPython 3.15 instructions and assemble them with [bytecode](https://github.com/MatthieuDartiailh/bytecode).
+2. Resolve typed signatures and bindings; check arity, constants, initialization, and return paths.
+3. Emit CPython 3.15 instructions with runtime type contracts and assemble them with [bytecode](https://github.com/MatthieuDartiailh/bytecode).
 
 The compiler generates bytecode directly. Source locations are converted to
 UTF-8 byte columns when attached to executable instructions.

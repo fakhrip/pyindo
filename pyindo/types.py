@@ -1,3 +1,7 @@
+from pyindo.diagnostics import PyIndoError
+from pyindo.nodes import TypeAnnotation
+
+
 class LiteralString(str):
     def __init__(self):
         pass
@@ -36,12 +40,10 @@ def allows_none(type_spec: TypeSpec) -> bool:
   return type_spec in ("apapun", "kosong")
 
 
-def resolve_type(annotation) -> TypeSpec:
+def resolve_type(annotation: TypeAnnotation) -> TypeSpec:
   """
   Validate source annotations and produce only marshal-safe normalized values.
   """
-
-  from pyindo.diagnostics import PyIndoError
 
   if annotation.name == "himpunan":
     if len(annotation.arguments) != 1:

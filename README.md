@@ -63,6 +63,8 @@ You can find all program examples of pyindo language in the [`tests/`](./tests/)
 Milestone 6 completes the README v1 example on CPython 3.15 with multiline
 strings, conditional expressions, typed program arguments, and CLI exit codes.
 Mandatory annotations and checked collection contracts remain enforced.
+Milestone 7 adds typed iterator loops over strings, collections, and iterable
+values supplied by an embedding Python program.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
@@ -72,7 +74,7 @@ Mandatory annotations and checked collection contracts remain enforced.
 | Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place arithmetic |
 | Lazy logic, logical negation, and conditional expressions | Assignment expressions |
 | Nested conditions and single-statement `maka` arms | Unbraced compound arms and optional statement semicolons |
-| Braced `selama` and C-style `untuk`, `berhenti`, and `lewati` | Iterator/range loops and loop-else |
+| Braced `selama`, C-style and iterator `untuk`, `berhenti`, and `lewati` | Range helpers, unpacked loop targets, and loop-else |
 | Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and augmented attribute/index targets |
 | Fresh nested list literals, indexed reads/writes, and indexed `hapus` | Slices, dictionaries/sets, comprehensions, methods, and unpacking |
 | Deeply immutable detached constant snapshots | Freezing arbitrary foreign Python objects |
@@ -172,8 +174,8 @@ existing initialized name. Initializers can also be updates, calls, or indexed
 deletions; update slots permit assignments, updates, calls, or indexed deletions,
 with one statement per slot.
 
-`berhenti;` exits the innermost loop. `lewati;` rechecks a while condition, or
-runs a for update exactly once before the next condition. Break and function
+`berhenti;` exits the innermost loop. `lewati;` rechecks a while condition,
+runs a C-style for update exactly once, or requests the next iterator item. Break and function
 return skip that update. Loop controls outside a loop are compile errors.
 
 `dan`/`&&` and `atau`/`||` evaluate left to right and skip unnecessary RHS
@@ -204,6 +206,55 @@ conditional-arm statement: a declaration, assignment/update, indexed deletion,
 call, return, break, or continue. It also works for `selainnya jika` and
 `selainnya maka`. Compound if/loop arms and all loop bodies require braces.
 Statement semicolons remain required, including in single-statement maka arms.
+
+### Iterator loops
+
+Use `untuk (variabel item: Type didalam expression) { ... }` to visit each item.
+Use `konstanta` for a protected iteration binding. Both forms require a fresh
+name, a type annotation, parentheses, and a braced body.
+
+```pyindo
+fungsi utama(): kosong {
+  variabel total: desimal = 0;
+
+  untuk (variabel angka: desimal didalam [1, 2, 3, 4]) {
+    jika (angka adalah 2) maka lewati;
+    jika (angka adalah 4) maka berhenti;
+    total += angka;
+  }
+
+  untuk (konstanta huruf: campuran didalam "café ☕") {
+    tampilkan(huruf);
+  }
+
+  tampilkan("|", total);
+}
+```
+
+This prints `café ☕|4`. The iterable expression runs once, then each item is
+checked against the target's annotation before the body runs. Lists with an
+explicit element type receive the usual checked-copy treatment at this binding;
+constant collection items receive detached deeply immutable snapshots on every
+iteration. Explicit reassignment or direct mutation of a constant target remains
+an error. Mutable targets may be reassigned; the next item initializes them again.
+
+Strings yield Unicode code points. Ordinary and checked lists use live iteration:
+replacing a later element is visible, deleting elements can skip an item, and
+appending can extend traversal. Constant snapshots retain their immutable data.
+Rebinding the source variable or mutable target does not redirect an existing
+iterator. These source-evaluation and iteration rules follow
+[Python's for statement](https://docs.python.org/3.15/reference/compound_stmts.html#the-for-statement).
+
+The target has function scope and follows existing duplicate-name checks.
+It is initialized for the body, after evaluation of the iterable. Analysis always
+allows zero iterations, so reading the target or a body-only declaration after
+the loop is rejected, even for a visibly nonempty source. Existing initialized
+variables updated by the body remain available after the loop.
+
+The CLI treats noniterables, iterator failures, and item contract failures as
+ordinary runtime errors. Embedding callers can supply other Python iterables
+through `apapun`; their iterator protocol is preserved. Named imports, range
+helpers, target unpacking, and loop-else remain future work.
 
 ### Mandatory types
 

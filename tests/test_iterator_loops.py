@@ -1,9 +1,12 @@
+import re
+import tempfile
 import unittest
+from pathlib import Path
 
 from pyindo.diagnostics import PyIndoError
 from pyindo.resolver import analyze_program
 from pyindo.syntax import parse_module
-from tests.fixture_runner import assert_program_result, run_python, run_source
+from tests.fixture_runner import REPOSITORY_PATH, assert_program_result, run_program, run_python, run_source
 from tests.test_language import run_compiled
 
 
@@ -420,3 +423,68 @@ for bad in (None, 1, True):
     raise AssertionError('noniterable accepted')
 '''
     assert_program_result(run_compiled(source, assertions), "")
+
+
+class IteratorIntegrationTests(unittest.TestCase):
+  def test_facades_marshal_and_utf8_metadata_keep_original_locations(self):
+    source = '''fungsi choose(values: apapun, flag: logika): apapun {
+  /* café ☕ */ untuk (variabel item: apapun didalam values jika flag selainnya []) {
+    hasilkan item;
+  }
+  hasilkan empty();
+}
+fungsi empty(): kosong {}
+fungsi utama(): kosong {}
+'''.replace("\n", "\r\n")
+    script = """import dis
+import marshal
+from pyindo.compiler import compile_source, compile_bytecodes
+from pyindo.parser import parse_program
+""" + f"source = {source!r}\n" + """codes = [compile_source(source, filename='iterator café.pyind')]
+for sentinel in ('', '\\0'):
+  instructions, chunks = parse_program(source + sentinel)
+  codes.append(compile_bytecodes(instructions, filename='iterator café.pyind').to_code())
+for code in codes:
+  namespace = {'__name__': 'inspection'}
+  exec(marshal.loads(marshal.dumps(code)), namespace)
+  function = namespace['choose']
+  assert function.__code__.co_varnames == ('values', 'flag', 'item')
+  assert function.__code__.co_filename == 'iterator café.pyind'
+  marker = object()
+  assert function([marker], True) is marker
+  assert function([marker], False) is None and function([], True) is None
+  for instruction in dis.get_instructions(function):
+    if instruction.opname in ('GET_ITER', 'FOR_ITER'):
+      line = source.splitlines()[1]
+      assert instruction.positions.lineno == instruction.positions.end_lineno == 2
+      assert instruction.positions.col_offset == len(line[:line.index('values jika')].encode('utf-8'))
+"""
+    assert_program_result(run_python(script), "")
+
+  def test_cli_arguments_status_and_debug_output_with_iterator_loops(self):
+    source = '''fungsi utama(argv: himpunan<campuran>, argc: desimal): desimal {
+  variabel total: desimal = 0;
+  untuk (konstanta word: campuran didalam argv) {
+    jika (word adalah argv[0]) maka lewati;
+    tampilkan(word, "|");
+    total++;
+  }
+  tampilkan(total);
+  hasilkan 7;
+}'''
+    with tempfile.TemporaryDirectory(prefix="pyindo iterator é ") as directory:
+      source_path = Path(directory) / "iterator example.pyind"
+      source_path.write_text(source, encoding="utf-8")
+      original = source_path.read_bytes()
+      for options in ((), ("-O",), ("-D",), ("-O", "-D")):
+        for arguments, output in ((None, "0"), (("one", "café ☕", "-D", "--"), "one|café ☕|-D|--|4")):
+          assert_program_result(run_program(source_path, options, program_arguments=arguments), output, 7)
+      self.assertIn("FOR_ITER", source_path.with_suffix(".dis").read_text(encoding="utf-8"))
+      self.assertEqual(source_path.read_bytes(), original)
+
+  def test_readme_iterator_example_runs_with_exact_output(self):
+    readme = (REPOSITORY_PATH / "README.md").read_text(encoding="utf-8")
+    section = readme.split("### Iterator loops\n", 1)
+    self.assertEqual(len(section), 2, "README iterator example is missing")
+    program = re.search(r"```pyindo\n(.*?)```", section[1], re.S).group(1)
+    assert_program_result(run_source(program), "café ☕|4")

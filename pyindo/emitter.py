@@ -4,6 +4,7 @@ from types import CodeType
 from bytecode import BinaryOp, Bytecode, Compare, CompilerFlags, Instr, Intrinsic1Op, Label
 from bytecode.instr import InstrLocation
 
+from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.nodes import (
   Assignment, Binary, Call, CallStatement, Declaration, If, InterpolatedString,
   Literal, Name, Program, Return, Unary,
@@ -220,10 +221,13 @@ def compile_program(program: Program, *, filename: str = "<pyindo>") -> Bytecode
   instructions = [Instr("RESUME", 0, lineno=1)]
 
   for function in program.functions:
-    function_code = compile_function(
-      function, symbols.scopes[function.name], signatures=symbols.signatures,
-      source_text=program.source_text, filename=filename,
-    )
+    try:
+      function_code = compile_function(
+        function, symbols.scopes[function.name], signatures=symbols.signatures,
+        source_text=program.source_text, filename=filename,
+      )
+    except RecursionError as complexity_error:
+      raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, function.span) from complexity_error
     instructions.extend([
       Instr("LOAD_CONST", function_code, lineno=function.span.line),
       Instr("MAKE_FUNCTION"), Instr("STORE_NAME", function.name),

@@ -1,5 +1,5 @@
-from pyindo.diagnostics import PyIndoError
-from pyindo.lexer import Lexer, StringExpression, StringText, TokenKind
+from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
+from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
   Assignment, Binary, Call, CallStatement, Declaration, Function, If,
   InterpolatedString, Literal, Name, Parameter, Program, Return, Unary,
@@ -276,7 +276,9 @@ class Parser:
     has_expression = False
 
     for part in token.value:
-      if isinstance(part, StringText):
+      if isinstance(part, StringError):
+        raise part.error
+      elif isinstance(part, StringText):
         parts.append(part.text)
       elif isinstance(part, StringExpression):
         parser = Parser(self.source_text, start=part.span.start, end=part.span.end)
@@ -297,10 +299,16 @@ def parse_module(source_text: str) -> Program:
   Parse top-level function declarations; semantic validation follows separately.
   """
 
-  parser = Parser(source_text)
-  functions = []
+  parser = None
 
-  while parser.current.kind != TokenKind.EOF:
-    functions.append(parser.parse_function())
+  try:
+    parser = Parser(source_text)
+    functions = []
 
-  return Program(functions, source_text, parser.tokens[0].span.through(parser.current.span))
+    while parser.current.kind != TokenKind.EOF:
+      functions.append(parser.parse_function())
+
+    return Program(functions, source_text, parser.tokens[0].span.through(parser.current.span))
+  except RecursionError as complexity_error:
+    span = parser.current.span if parser is not None else SourceMap(source_text).span(0, 0)
+    raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, span) from complexity_error

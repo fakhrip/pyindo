@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from pyindo.compiler import compile_source
+from pyindo.diagnostics import PyIndoError
 from tests.fixture_runner import assert_program_result, run_python
 
 
@@ -22,6 +23,14 @@ def run_compiled(source_text, assertions="", module_name="inspection"):
 
 
 class LanguageTests(unittest.TestCase):
+  def test_excessive_flat_expression_complexity_has_a_located_error(self):
+    source = "fungsi utama() { hasilkan 1" + " + 1" * 1200 + "; }"
+
+    with self.assertRaisesRegex(PyIndoError, "complexity exceeds compiler limit") as raised:
+      compile_source(source)
+
+    self.assertIsNotNone(raised.exception.span)
+
   def test_parameters_locals_constants_and_returns(self):
     source = """fungsi jumlah(a, b) {
   konstanta extra = 10;

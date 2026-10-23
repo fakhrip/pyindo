@@ -2,6 +2,9 @@ from bisect import bisect_right
 from dataclasses import dataclass
 
 
+COMPLEXITY_ERROR_MESSAGE = "Source complexity exceeds compiler limit"
+
+
 @dataclass(frozen=True)
 class SourceSpan:
   start: int

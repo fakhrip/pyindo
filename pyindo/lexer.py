@@ -29,6 +29,11 @@ class StringExpression:
 
 
 @dataclass(frozen=True)
+class StringError:
+  error: PyIndoError
+
+
+@dataclass(frozen=True)
 class Token:
   kind: TokenKind
   text: str
@@ -65,6 +70,7 @@ class Lexer:
     self.position = start
     self.end = end
     self.source_map = SourceMap(source_text)
+    self.defer_errors = False
 
   def error(self, message: str, start: int) -> PyIndoError:
     return PyIndoError(message, self.source_map.span(start, min(start + 1, self.end)))
@@ -74,7 +80,7 @@ class Lexer:
     Skip one outside-string comment while retaining validation of embedded NULs.
     """
 
-    if self.source_text.startswith("//", self.position):
+    if self.source_text.startswith("//", self.position, self.end):
       line_end = self.source_text.find("\n", self.position, self.end)
       comment_end = self.end if line_end == -1 else line_end
       nul_position = self.source_text.find("\0", self.position, comment_end)
@@ -85,7 +91,7 @@ class Lexer:
       self.position = comment_end
       return True
 
-    if self.source_text.startswith("/*", self.position):
+    if self.source_text.startswith("/*", self.position, self.end):
       comment_start = self.position
       comment_end = self.source_text.find("*/", self.position + 2, self.end)
 
@@ -120,14 +126,14 @@ class Lexer:
 
     self.position += 1
 
-    if character == "$" and self.source_text.startswith("{", self.position):
+    if character == "$" and self.source_text.startswith("{", self.position, self.end):
       self.position += 1
       return "${"
 
     if character in ("x", "u", "U"):
       width = {"x": 2, "u": 4, "U": 8}[character]
       self.position = min(self.position + width, self.end)
-    elif character == "N" and self.source_text.startswith("{", self.position):
+    elif character == "N" and self.source_text.startswith("{", self.position, self.end):
       closing_brace = self.source_text.find("}", self.position, self.end)
 
       if closing_brace == -1:
@@ -181,7 +187,7 @@ class Lexer:
 
     raise self.error("Unterminated interpolation", expression_start)
 
-  def scan_string(self) -> tuple[StringText | StringExpression, ...]:
+  def scan_string(self) -> tuple[StringText | StringExpression | StringError, ...]:
     """
     Decode literal text once and retain source regions for embedded expressions.
     """
@@ -196,29 +202,45 @@ class Lexer:
     while self.position < self.end:
       character = self.source_text[self.position]
 
-      if character == quote or self.source_text.startswith("${", self.position):
-        if text_parts:
-          parts.append(StringText(
-            "".join(text_parts), self.source_map.span(text_start, self.position),
-          ))
-          text_parts = []
+      try:
+        if character == quote or self.source_text.startswith("${", self.position, self.end):
+          if text_parts:
+            parts.append(StringText(
+              "".join(text_parts), self.source_map.span(text_start, self.position),
+            ))
+            text_parts = []
 
-        if character == quote:
+          if character == quote:
+            self.position += 1
+            return tuple(parts)
+
+          self.position += 2
+          parts.append(StringExpression(self.scan_interpolation()))
+          text_start = self.position
+        elif character == "\\":
+          text_parts.append(self.scan_escape())
+        elif character in "\r\n\0":
+          raise self.error("Unexpected newline or NUL in string", self.position)
+        else:
+          text_parts.append(character)
           self.position += 1
-          return tuple(parts)
+      except PyIndoError as error:
+        if not self.defer_errors:
+          raise
 
-        self.position += 2
-        parts.append(StringExpression(self.scan_interpolation()))
+        # Preserve earlier interpolation parts before reporting later text errors.
+        # Recovery is for diagnostics only; StringError can never become an AST.
+        parts.append(StringError(error))
+        text_parts = []
+        self.position = max(self.position, error.span.end)
         text_start = self.position
-      elif character == "\\":
-        text_parts.append(self.scan_escape())
-      elif character in "\r\n\0":
-        raise self.error("Unexpected newline or NUL in string", self.position)
-      else:
-        text_parts.append(character)
-        self.position += 1
 
-    raise self.error("Unterminated string", quote_start)
+    error = self.error("Unterminated string", quote_start)
+
+    if not self.defer_errors:
+      raise error
+
+    return tuple([*parts, StringError(error)])
 
   def tokens(self, *, defer_errors: bool = False) -> list[Token]:
     """
@@ -229,6 +251,7 @@ class Lexer:
     """
 
     tokens = []
+    self.defer_errors = defer_errors
 
     try:
       self.scan_tokens(tokens)

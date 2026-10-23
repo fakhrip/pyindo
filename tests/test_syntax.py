@@ -76,6 +76,28 @@ fungsi utama() { hasilkan; }
     self.assertEqual(raised.exception.span.line, 1)
     self.assertIn("Expecting 'fungsi'", raised.exception.message)
 
+  def test_earlier_interpolation_error_precedes_later_string_escape_error(self):
+    for expression in ("@", "", "1 +", '@ + call("\\xGG")'):
+      with self.subTest(expression=expression):
+        source = 'fungsi utama() { tampilkan("${' + expression + r'} \xGG"); }'
+
+        with self.assertRaises(PyIndoError) as raised:
+          parse_module(source)
+
+        self.assertNotEqual(raised.exception.message, "Invalid string escape")
+        self.assertLessEqual(raised.exception.span.start, source.index("}", source.index("${")))
+
+    with self.assertRaisesRegex(PyIndoError, "Invalid string escape"):
+      parse_module(r'fungsi utama() { tampilkan("${1} \xGG"); }')
+
+  def test_excessive_source_nesting_has_a_located_error(self):
+    source = "fungsi utama() { hasilkan " + "(" * 1200 + "1" + ")" * 1200 + "; }"
+
+    with self.assertRaisesRegex(PyIndoError, "complexity exceeds compiler limit") as raised:
+      parse_module(source)
+
+    self.assertIsNotNone(raised.exception.span)
+
   def test_invalid_or_unsupported_syntax_is_located(self):
     sources = [
       "fungsi utama() { jika () {} }", "fungsi utama() { tampilkan(1) }",

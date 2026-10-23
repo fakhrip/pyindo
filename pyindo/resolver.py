@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from pyindo.diagnostics import PyIndoError, SourceSpan
+from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, Binary, Call, CallStatement, Declaration, If,
   InterpolatedString, Literal, Name, Program, Return, Unary,
@@ -159,7 +159,7 @@ class FunctionAnalyzer:
     return initialized, can_fall_through
 
 
-def analyze_program(program: Program) -> ProgramSymbols:
+def _analyze_program(program: Program) -> ProgramSymbols:
   """
   Register all functions, collect locals, then validate calls and live paths.
   """
@@ -215,3 +215,14 @@ def analyze_program(program: Program) -> ProgramSymbols:
     FunctionAnalyzer(scope, signatures).block(function.body, set(parameters))
 
   return ProgramSymbols(signatures, scopes)
+
+
+def analyze_program(program: Program) -> ProgramSymbols:
+  """
+  Validate bindings and initialization, reporting the compiler's traversal limit.
+  """
+
+  try:
+    return _analyze_program(program)
+  except RecursionError as complexity_error:
+    raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, program.span) from complexity_error

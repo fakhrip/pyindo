@@ -80,3 +80,11 @@ class LexerTests(unittest.TestCase):
       tokenize("1" * 4500)
 
     self.assertEqual(raised.exception.span.start, 0)
+
+  def test_bounded_tokenization_does_not_read_a_comment_marker_past_end(self):
+    for source in ("// comment", "/* comment */"):
+      with self.subTest(source=source):
+        tokens = tokenize(source, end=1)
+
+        self.assertEqual([token.text for token in tokens], ["/", ""])
+        self.assertEqual(tokens[-1].span.start, 1)

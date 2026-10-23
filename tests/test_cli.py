@@ -152,6 +152,15 @@ class CliTests(unittest.TestCase):
   def test_entrypoint_return_does_not_choose_the_cli_status(self):
     assert_program_result(run_source("fungsi utama() { hasilkan 1337; }"), "")
 
+  def test_source_complexity_limit_has_a_structured_diagnostic(self):
+    source = "fungsi utama() { hasilkan 1" + " + 1" * 1200 + "; }"
+
+    assert_program_result(
+      run_source(source),
+      "Error: Source complexity exceeds compiler limit (on line number 1)",
+      70,
+    )
+
   def test_optimization_preserves_the_new_language(self):
     source = """fungsi utama() {
   variabel value = jumlah(2, 3);

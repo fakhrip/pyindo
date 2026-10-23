@@ -7,7 +7,7 @@ from bytecode.instr import InstrLocation
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, SOURCE_NEWLINE_PATTERN, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
-  Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
+  Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
 )
@@ -36,6 +36,7 @@ class LoopTargets:
   break_label: Label
   continue_label: Label
   continue_opcode: str
+  is_iterator: bool = False
 
 
 @dataclass
@@ -365,7 +366,16 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
     targets = context.loop_targets[-1]
     opcode = "JUMP_FORWARD" if isinstance(statement, Break) else targets.continue_opcode
     label = targets.break_label if isinstance(statement, Break) else targets.continue_label
-    return [context.instruction(opcode, label, span=statement.span)]
+    instructions = []
+
+    if isinstance(statement, Break) and targets.is_iterator:
+      # Only this loop exits; retain any enclosing iterator's two stack slots.
+      instructions.extend([
+        context.instruction("POP_TOP", span=statement.span, has_argument=False),
+        context.instruction("POP_TOP", span=statement.span, has_argument=False),
+      ])
+
+    return [*instructions, context.instruction(opcode, label, span=statement.span)]
 
   if isinstance(statement, While):
     condition_label, exit_label = Label(), Label()
@@ -406,6 +416,32 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
     ])
     return instructions
 
+  if isinstance(statement, ForEach):
+    next_label, exhausted_label, exit_label = Label(), Label(), Label()
+    # CPython 3.15 retains iterator + index_or_null below each yielded item.
+    # Move the item above helper/NULL before guarding it, without hidden locals.
+    item = emit_type_guard(
+      [
+        context.instruction("SWAP", 2, span=statement.binding_span),
+        context.instruction("SWAP", 3, span=statement.binding_span),
+      ], context.scope.binding_types[statement.name],
+      _contract_context("binding", statement.name, context, statement.binding_span),
+      context, statement.binding_span, is_constant=statement.is_constant,
+    )
+    return [
+      *emit_expression(statement.iterable, context),
+      context.instruction("GET_ITER", 0, span=statement.iterable.span), next_label,
+      context.instruction("FOR_ITER", exhausted_label, span=statement.iterable.span),
+      *item, context.instruction("STORE_FAST", statement.name, span=statement.binding_span),
+      *emit_loop_body(
+        statement.body, context, LoopTargets(exit_label, next_label, "JUMP_BACKWARD", True),
+      ),
+      context.instruction("JUMP_BACKWARD", next_label, span=statement.span), exhausted_label,
+      # Keep this native exhaustion pair together; break skips it after cleanup.
+      context.instruction("END_FOR", span=statement.span, has_argument=False),
+      context.instruction("POP_ITER", span=statement.span, has_argument=False), exit_label,
+    ]
+
   if isinstance(statement, CallStatement):
     return [
       *emit_expression(statement.call, context),
@@ -417,11 +453,22 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
       emit_expression(statement.value, context) if statement.value is not None
       else [context.instruction("LOAD_CONST", None, span=statement.span)]
     )
+    instructions = emit_type_guard(
+      instructions, context.scope.return_type,
+      _contract_context("return", context.scope.name, context, statement.span), context, statement.span,
+    )
+
+    for targets in reversed(context.loop_targets):
+      if targets.is_iterator:
+        # Preserve the guarded result while releasing each enclosing iterator.
+        instructions.extend([
+          context.instruction("SWAP", 3, span=statement.span),
+          context.instruction("POP_TOP", span=statement.span, has_argument=False),
+          context.instruction("POP_TOP", span=statement.span, has_argument=False),
+        ])
+
     return [
-      *emit_type_guard(
-        instructions, context.scope.return_type,
-        _contract_context("return", context.scope.name, context, statement.span), context, statement.span,
-      ),
+      *instructions,
       context.instruction("RETURN_VALUE", span=statement.span, has_argument=False),
     ]
 

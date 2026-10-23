@@ -7,17 +7,17 @@ from pyindo.syntax import parse_module
 
 class SyntaxTests(unittest.TestCase):
   def expression(self, text):
-    return parse_module(f"fungsi utama() {{ hasilkan {text}; }}").functions[0].body[0].value
+    return parse_module(f"fungsi utama(): apapun {{ hasilkan {text}; }}").functions[0].body[0].value
 
   def test_function_parameters_and_statement_nodes(self):
-    program = parse_module("""fungsi jumlah(a, b) {
-  variabel total = a + b;
-  konstanta batas = 10;
+    program = parse_module("""fungsi jumlah(a: apapun, b: apapun): apapun {
+  variabel total: apapun = a + b;
+  konstanta batas: apapun = 10;
   total = total + batas;
   tampilkan(total);
   hasilkan total;
 }
-fungsi utama() { hasilkan; }
+fungsi utama(): apapun { hasilkan; }
 """)
 
     self.assertEqual([parameter.name for parameter in program.functions[0].parameters], ["a", "b"])
@@ -31,7 +31,7 @@ fungsi utama() { hasilkan; }
     self.assertEqual(statements[0].span.line, 2)
 
   def test_nested_conditions_keep_their_own_else(self):
-    body = parse_module("""fungsi utama() {
+    body = parse_module("""fungsi utama(): apapun {
   jika (benar) {
     jika (salah) {} selainnya {}
   } selainnya jika (salah) {} selainnya {}
@@ -79,7 +79,7 @@ fungsi utama() { hasilkan; }
   def test_earlier_interpolation_error_precedes_later_string_escape_error(self):
     for expression in ("@", "", "1 +", '@ + call("\\xGG")'):
       with self.subTest(expression=expression):
-        source = 'fungsi utama() { tampilkan("${' + expression + r'} \xGG"); }'
+        source = 'fungsi utama(): apapun { tampilkan("${' + expression + r'} \xGG"); }'
 
         with self.assertRaises(PyIndoError) as raised:
           parse_module(source)
@@ -88,10 +88,10 @@ fungsi utama() { hasilkan; }
         self.assertLessEqual(raised.exception.span.start, source.index("}", source.index("${")))
 
     with self.assertRaisesRegex(PyIndoError, "Invalid string escape"):
-      parse_module(r'fungsi utama() { tampilkan("${1} \xGG"); }')
+      parse_module(r'fungsi utama(): apapun { tampilkan("${1} \xGG"); }')
 
   def test_excessive_source_nesting_has_a_located_error(self):
-    source = "fungsi utama() { hasilkan " + "(" * 1200 + "1" + ")" * 1200 + "; }"
+    source = "fungsi utama(): apapun { hasilkan " + "(" * 1200 + "1" + ")" * 1200 + "; }"
 
     with self.assertRaisesRegex(PyIndoError, "complexity exceeds compiler limit") as raised:
       parse_module(source)
@@ -100,12 +100,12 @@ fungsi utama() { hasilkan; }
 
   def test_invalid_or_unsupported_syntax_is_located(self):
     sources = [
-      "fungsi utama() { jika () {} }", "fungsi utama() { tampilkan(1) }",
-      "fungsi utama(a: desimal) {}", "fungsi utama() { untuk (variabel i: desimal = 0;;) {} }",
-      "fungsi utama() { hasilkan 1 && ; }", "fungsi utama() { x += ; }",
-      "fungsi utama() { jika (benar) maka tampilkan(1) }",
-      'fungsi utama() { tampilkan("${}"); }', "fungsi utama() {} extra",
-      "fungsi utama() { hasilkan (1 + 2; }",
+      "fungsi utama(): apapun { jika () {} }", "fungsi utama(): apapun { tampilkan(1) }",
+      "fungsi utama(a: himpunan<>): apapun {}", "fungsi utama(): apapun { untuk (variabel i: himpunan<> = 0;;) {} }",
+      "fungsi utama(): apapun { hasilkan 1 && ; }", "fungsi utama(): apapun { x += ; }",
+      "fungsi utama(): apapun { jika (benar) maka tampilkan(1) }",
+      'fungsi utama(): apapun { tampilkan("${}"); }', "fungsi utama(): apapun {} extra",
+      "fungsi utama(): apapun { hasilkan (1 + 2; }",
     ]
 
     for source in sources:
@@ -116,7 +116,7 @@ fungsi utama() { hasilkan; }
         self.assertIsNotNone(raised.exception.span)
 
   def test_interpolation_reuses_expression_grammar_and_original_spans(self):
-    source = '''fungsi utama() { hasilkan "café ☕ ${gabung("}", kali(2, 3))}"; }'''
+    source = '''fungsi utama(): apapun { hasilkan "café ☕ ${gabung("}", kali(2, 3))}"; }'''
     expression = parse_module(source).functions[0].body[0].value
 
     self.assertIsInstance(expression, InterpolatedString)

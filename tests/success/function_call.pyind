@@ -1,7 +1,7 @@
-fungsi test() {
+fungsi test(): kosong {
     tampilkan("Hello semuanya!");
 }
 
-fungsi utama() {
+fungsi utama(): kosong {
     test();
 }

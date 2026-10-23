@@ -1,4 +1,4 @@
-fungsi utama() {
+fungsi utama(): kosong {
     /*
         Menampilkan "Halo halo halo" dengan menggunakan
         fungsi tampilkan() dengan parameter "Halo halo halo"

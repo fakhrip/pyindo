@@ -24,7 +24,7 @@ def run_compiled(source_text, assertions="", module_name="inspection"):
 
 class LanguageTests(unittest.TestCase):
   def test_excessive_flat_expression_complexity_has_a_located_error(self):
-    source = "fungsi utama() { hasilkan 1" + " + 1" * 1200 + "; }"
+    source = "fungsi utama(): apapun { hasilkan 1" + " + 1" * 1200 + "; }"
 
     with self.assertRaisesRegex(PyIndoError, "complexity exceeds compiler limit") as raised:
       compile_source(source)
@@ -32,16 +32,16 @@ class LanguageTests(unittest.TestCase):
     self.assertIsNotNone(raised.exception.span)
 
   def test_parameters_locals_constants_and_returns(self):
-    source = """fungsi jumlah(a, b) {
-  konstanta extra = 10;
-  variabel total = a + b;
+    source = """fungsi jumlah(a: apapun, b: apapun): apapun {
+  konstanta extra: apapun = 10;
+  variabel total: apapun = a + b;
   total = total + extra;
   hasilkan total;
   tampilkan("unreachable");
 }
-fungsi kosong() { hasilkan; }
-fungsi lanjut() {}
-fungsi utama() {}
+fungsi kosong(): apapun { hasilkan; }
+fungsi lanjut(): apapun {}
+fungsi utama(): apapun {}
 """
     assertions = (
       "assert namespace['jumlah'](2, 3) == 15\n"
@@ -53,9 +53,9 @@ fungsi utama() {}
     assert_program_result(run_compiled(source, assertions), "")
 
   def test_local_names_are_isolated_between_functions_and_calls(self):
-    source = """fungsi first(value) { variabel total = value + 1; hasilkan total; }
-fungsi second(value) { variabel total = first(value) + first(2); hasilkan total; }
-fungsi utama() { tampilkan(second(10), first(0)); }
+    source = """fungsi first(value: apapun): apapun { variabel total: apapun = value + 1; hasilkan total; }
+fungsi second(value: apapun): apapun { variabel total: apapun = first(value) + first(2); hasilkan total; }
+fungsi utama(): apapun { tampilkan(second(10), first(0)); }
 """
 
     assert_program_result(run_compiled(source, module_name="__main__"), "141")
@@ -70,9 +70,9 @@ fungsi utama() { tampilkan(second(10), first(0)); }
       ("2 >= 3", False), ("2 bukan 3", True), ("2 adalah 2", True),
     ]
     source = "\n".join(
-      f"fungsi case_{index}() {{ hasilkan {expression}; }}"
+      f"fungsi case_{index}(): apapun {{ hasilkan {expression}; }}"
       for index, (expression, _) in enumerate(cases)
-    ) + "\nfungsi utama() {}"
+    ) + "\nfungsi utama(): apapun {}"
     assertions = "\n".join(
       f"assert namespace['case_{index}']() == {expected!r}"
       for index, (_, expected) in enumerate(cases)
@@ -81,36 +81,36 @@ fungsi utama() { tampilkan(second(10), first(0)); }
     assert_program_result(run_compiled(source, assertions), "")
 
   def test_all_definitions_precede_entrypoint_execution(self):
-    source = 'fungsi utama() { tampilkan(helper(2, 3)); } fungsi helper(a, b) { hasilkan a + b; }'
+    source = 'fungsi utama(): apapun { tampilkan(helper(2, 3)); } fungsi helper(a: apapun, b: apapun): apapun { hasilkan a + b; }'
 
     assert_program_result(run_compiled(source), "")
     assert_program_result(run_compiled(source, module_name="__main__"), "5")
 
   def test_entrypoint_return_is_discarded(self):
-    source = "fungsi utama() { hasilkan 1337; tampilkan(1); }"
+    source = "fungsi utama(): apapun { hasilkan 1337; tampilkan(1); }"
 
     assert_program_result(run_compiled(source, module_name="__main__"), "")
 
   def test_intrinsic_print_has_a_value_and_preserves_concatenation(self):
-    source = """fungsi empty() { hasilkan tampilkan(); }
-fungsi utama() { tampilkan("a", 2, benar); }
+    source = """fungsi empty(): apapun { hasilkan tampilkan(); }
+fungsi utama(): apapun { tampilkan("a", 2, benar); }
 """
 
     assert_program_result(run_compiled(source, "assert namespace['empty']() is None"), "")
     assert_program_result(run_compiled(source, module_name="__main__"), "a2True")
 
   def test_backend_names_are_safe_as_locals(self):
-    source = 'fungsi utama() { variabel print = 1; variabel __name__ = 2; tampilkan("ok"); }'
+    source = 'fungsi utama(): apapun { variabel print: apapun = 1; variabel __name__: apapun = 2; tampilkan("ok"); }'
 
     assert_program_result(run_compiled(source, module_name="__main__"), "ok")
 
   def test_functions_have_ordered_slots_flags_and_source_metadata(self):
-    source = """fungsi helper(a, b) {
-  variabel result = a + b;
+    source = """fungsi helper(a: apapun, b: apapun): apapun {
+  variabel result: apapun = a + b;
   hasilkan result;
-  variabel unused = 0;
+  variabel unused: apapun = 0;
 }
-fungsi utama() {}
+fungsi utama(): apapun {}
 """
     assertions = """import dis
 from bytecode import CompilerFlags
@@ -134,12 +134,12 @@ assert helper(2, 3) == 5
     with patch("pyindo.compiler.ensure_supported_runtime", side_effect=RuntimeError("unsupported")):
       with patch("pyindo.syntax.parse_module") as parse_module:
         with self.assertRaisesRegex(RuntimeError, "unsupported"):
-          compile_source("fungsi utama() {}")
+          compile_source("fungsi utama(): apapun {}")
 
         parse_module.assert_not_called()
 
   def test_nested_branches_resume_in_the_correct_block(self):
-    source = """fungsi pilih(a, b) {
+    source = """fungsi pilih(a: apapun, b: apapun): apapun {
   jika (a) {
     jika (b) { tampilkan("tt"); } selainnya { tampilkan("tf"); }
     tampilkan("inside");
@@ -148,7 +148,7 @@ assert helper(2, 3) == 5
   jika (salah) {} selainnya {}
   tampilkan("after");
 }
-fungsi utama() { pilih(benar, salah); pilih(salah, benar); pilih(salah, salah); pilih(benar, benar); }
+fungsi utama(): apapun { pilih(benar, salah); pilih(salah, benar); pilih(salah, salah); pilih(benar, benar); }
 """
 
     assert_program_result(
@@ -157,47 +157,47 @@ fungsi utama() { pilih(benar, salah); pilih(salah, benar); pilih(salah, salah); 
     )
 
   def test_conditions_accept_general_truthy_values(self):
-    source = """fungsi pilih(value) {
+    source = """fungsi pilih(value: apapun): apapun {
   jika (value) { hasilkan "T"; } selainnya { hasilkan "F"; }
 }
-fungsi utama() { tampilkan(pilih(0), pilih(1), pilih(""), pilih("yes")); }
+fungsi utama(): apapun { tampilkan(pilih(0), pilih(1), pilih(""), pilih("yes")); }
 """
 
     assert_program_result(run_compiled(source, module_name="__main__"), "FTFT")
 
   def test_self_and_mutual_recursion_have_independent_frames(self):
-    source = """fungsi utama() { tampilkan(faktorial(5), genap(10), ganjil(10)); }
-fungsi faktorial(n) {
+    source = """fungsi utama(): apapun { tampilkan(faktorial(5), genap(10), ganjil(10)); }
+fungsi faktorial(n: apapun): apapun {
   jika (n <= 1) { hasilkan 1; }
   hasilkan n * faktorial(n - 1);
 }
-fungsi genap(n) { jika (n == 0) { hasilkan benar; } hasilkan ganjil(n - 1); }
-fungsi ganjil(n) { jika (n == 0) { hasilkan salah; } hasilkan genap(n - 1); }
+fungsi genap(n: apapun): apapun { jika (n == 0) { hasilkan benar; } hasilkan ganjil(n - 1); }
+fungsi ganjil(n: apapun): apapun { jika (n == 0) { hasilkan salah; } hasilkan genap(n - 1); }
 """
 
     assert_program_result(run_compiled(source, module_name="__main__"), "120TrueFalse")
 
   def test_nested_call_arguments_evaluate_once_left_to_right(self):
-    helpers = """fungsi tandai(teks) { tampilkan(teks); hasilkan teks; }
-fungsi gabung(a, b) { hasilkan a + b; }
+    helpers = """fungsi tandai(teks: apapun): apapun { tampilkan(teks); hasilkan teks; }
+fungsi gabung(a: apapun, b: apapun): apapun { hasilkan a + b; }
 """
 
     for expression in ('gabung(tandai("A"), tandai("B"))', '"${gabung(tandai("A"), tandai("B"))}"'):
       with self.subTest(expression=expression):
-        source = helpers + f"fungsi utama() {{ tampilkan({expression}); }}"
+        source = helpers + f"fungsi utama(): apapun {{ tampilkan({expression}); }}"
         assert_program_result(run_compiled(source, module_name="__main__"), "ABAB")
 
   def test_interpolation_preserves_escapes_unicode_and_inner_strings(self):
-    source = r'''fungsi identity(value) { hasilkan value; }
-fungsi utama() {
-  variabel value = 3;
+    source = r'''fungsi identity(value: apapun): apapun { hasilkan value; }
+fungsi utama(): apapun {
+  variabel value: apapun = 3;
   tampilkan("café ☕ ${value + 1}|\${value}|\\${value}|${identity("}")}|// /* () ,");
 }'''
 
     assert_program_result(run_compiled(source, module_name="__main__"), "café ☕ 4|${value}|\\3|}|// /* () ,")
 
   def test_interpolation_positions_use_utf8_byte_columns(self):
-    source = 'fungsi utama() { tampilkan("café ☕ ${1 + 2}"); }'
+    source = 'fungsi utama(): apapun { tampilkan("café ☕ ${1 + 2}"); }'
     expression_start = source.index("1 + 2")
     start_column = len(source[:expression_start].encode("utf-8"))
     end_column = start_column + len("1 + 2")
@@ -209,16 +209,16 @@ fungsi utama() {
     assert_program_result(run_compiled(source, assertions), "")
 
   def test_returning_branch_allows_initialized_fallthrough_local(self):
-    source = """fungsi pilih(flag) {
-  jika (flag) { hasilkan 1; } selainnya { variabel result = 2; }
+    source = """fungsi pilih(flag: apapun): apapun {
+  jika (flag) { hasilkan 1; } selainnya { variabel result: apapun = 2; }
   hasilkan result;
 }
-fungsi utama() { tampilkan(pilih(benar), pilih(salah)); }
+fungsi utama(): apapun { tampilkan(pilih(benar), pilih(salah)); }
 """
 
     assert_program_result(run_compiled(source, module_name="__main__"), "12")
 
   def test_default_return_and_boolean_formatting(self):
-    source = 'fungsi empty() {} fungsi utama() { tampilkan("${empty()}|${benar}|${salah}"); }'
+    source = 'fungsi empty(): apapun {} fungsi utama(): apapun { tampilkan("${empty()}|${benar}|${salah}"); }'
 
     assert_program_result(run_compiled(source, module_name="__main__"), "None|True|False")

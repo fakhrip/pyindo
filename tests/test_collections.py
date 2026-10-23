@@ -8,9 +8,9 @@ from pyindo.syntax import parse_module
 from tests.fixture_runner import assert_program_result, run_program, run_python, run_source
 
 
-COLLECTION_PROGRAM = """fungsi utama() {
-  variabel angka = [1, 2, 3];
-  konstanta awal = angka;
+COLLECTION_PROGRAM = """fungsi utama(): apapun {
+  variabel angka: apapun = [1, 2, 3];
+  konstanta awal: apapun = angka;
 
   angka[0] = 9;
   tampilkan(awal, "|", angka, "|", 2 didalam angka, "|");
@@ -29,11 +29,11 @@ COLLECTION_OUTPUT = "[1, 2, 3]|[9, 2, 3]|True|923[]"
 class CollectionTests(unittest.TestCase):
   def assert_rejected(self, body):
     with self.assertRaises(PyIndoError):
-      analyze_program(parse_module(f"fungsi utama() {{ {body} }}"))
+      analyze_program(parse_module(f"fungsi utama(): apapun {{ {body} }}"))
 
   def test_literal_elements_and_empty_trailing_comma_forms(self):
-    source = """fungsi mark(value) { tampilkan(value); hasilkan value; }
-fungsi utama() {
+    source = """fungsi mark(value: apapun): apapun { tampilkan(value); hasilkan value; }
+fungsi utama(): apapun {
   tampilkan([]);
   tampilkan([mark("L"), mark("R")]);
   tampilkan([1,]);
@@ -42,8 +42,8 @@ fungsi utama() {
     assert_program_result(run_source(source), "[]LR['L', 'R'][1]")
 
   def test_index_reads_bind_above_signs_and_power(self):
-    source = """fungsi buat() { hasilkan [0, [5]]; }
-fungsi utama() {
+    source = """fungsi buat(): apapun { hasilkan [0, [5]]; }
+fungsi utama(): apapun {
   tampilkan(buat()[1][0], "café"[-1], ([7, 8])[0]);
   tampilkan(-[2][0] ** 2, 2 ** [3][0], [2][0] ** -[3][0]);
 }
@@ -51,7 +51,7 @@ fungsi utama() {
     assert_program_result(run_source(source), "5é7-480.125")
 
   def test_nested_literals_are_fresh_on_every_call(self):
-    source = "fungsi buat() { hasilkan [0, [1]]; } fungsi utama() {}"
+    source = "fungsi buat(): apapun { hasilkan [0, [1]]; } fungsi utama(): apapun {}"
     script = (
       "from pyindo.compiler import compile_source\n"
       "namespace = {'__name__': 'inspection'}\n"
@@ -65,7 +65,7 @@ fungsi utama() {
     assert_program_result(run_python(script), "")
 
   def test_index_protocol_and_native_errors(self):
-    source = "fungsi baca(values, key) { hasilkan values[key]; } fungsi utama() {}"
+    source = "fungsi baca(values: apapun, key: apapun): apapun { hasilkan values[key]; } fungsi utama(): apapun {}"
     script = (
       "from pyindo.compiler import compile_source\n"
       "namespace = {'__name__': 'inspection'}\n"
@@ -96,29 +96,29 @@ fungsi utama() {
     for body in bodies:
       with self.subTest(body=body):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ variabel values = [1]; {body} }}")
+          parse_module(f"fungsi utama(): apapun {{ variabel values: apapun = [1]; {body} }}")
 
   def test_new_reads_keep_static_dead_and_skipped_source_checks(self):
     bodies = (
-      "variabel values = [missing];",
-      "variabel values = [values];",
-      "variabel values = [1]; tampilkan(values[key]);",
+      "variabel values: apapun = [missing];",
+      "variabel values: apapun = [values];",
+      "variabel values: apapun = [1]; tampilkan(values[key]);",
       "hasilkan; tampilkan([missing]);",
       "tampilkan(salah dan [missing]);",
       "tampilkan(benar atau missing[0]);",
-      "tampilkan(later[0]); variabel later = [1];",
-      "untuk (variabel index = 0; index < 1; index += step[0]) { lewati; variabel step = [1]; }",
+      "tampilkan(later[0]); variabel later: apapun = [1];",
+      "untuk (variabel index: apapun = 0; index < 1; index += step[0]) { lewati; variabel step: apapun = [1]; }",
     )
     for body in bodies:
       with self.subTest(body=body):
         self.assert_rejected(body)
 
   def test_indexed_store_and_delete_evaluate_each_operand_once(self):
-    source = """fungsi base(values) { tampilkan("B"); hasilkan values; }
-fungsi key() { tampilkan("I"); hasilkan 0; }
-fungsi rhs() { tampilkan("R"); hasilkan 9; }
-fungsi utama() {
-  variabel values = [0];
+    source = """fungsi base(values: apapun): apapun { tampilkan("B"); hasilkan values; }
+fungsi key(): apapun { tampilkan("I"); hasilkan 0; }
+fungsi rhs(): apapun { tampilkan("R"); hasilkan 9; }
+fungsi utama(): apapun {
+  variabel values: apapun = [0];
   base(values)[key()] = rhs();
   tampilkan(values);
   hapus base(values)[key()];
@@ -128,12 +128,12 @@ fungsi utama() {
     assert_program_result(run_source(source), "RBI[9]BI[]")
 
   def test_nested_target_lookup_follows_rhs_mutation(self):
-    source = """fungsi replace(values) { hapus values[0]; hasilkan 9; }
-fungsi utama() {
-  variabel rows = [[1], [2]];
+    source = """fungsi replace(values: apapun): apapun { hapus values[0]; hasilkan 9; }
+fungsi utama(): apapun {
+  variabel rows: apapun = [[1], [2]];
   rows[0][0] = replace(rows);
   tampilkan(rows);
-  variabel alias = rows;
+  variabel alias: apapun = rows;
   hapus alias[0][0];
   tampilkan(rows);
   hapus rows[0];
@@ -143,12 +143,12 @@ fungsi utama() {
     assert_program_result(run_source(source), "[[9]][[]][]")
 
   def test_store_errors_stop_later_target_effects(self):
-    source = """fungsi base(values) { tampilkan("B"); hasilkan values[0]; }
-fungsi key(value) { tampilkan("I"); hasilkan value; }
-fungsi rhs(value) { tampilkan("R"); hasilkan value[0]; }
-fungsi store(values, right) { base(values)[key(0)] = rhs(right); }
-fungsi nested(values, right) { base(values)[key(1)][key(0)] = rhs(right); }
-fungsi utama() {}
+    source = """fungsi base(values: apapun): apapun { tampilkan("B"); hasilkan values[0]; }
+fungsi key(value: apapun): apapun { tampilkan("I"); hasilkan value; }
+fungsi rhs(value: apapun): apapun { tampilkan("R"); hasilkan value[0]; }
+fungsi store(values: apapun, right: apapun): apapun { base(values)[key(0)] = rhs(right); }
+fungsi nested(values: apapun, right: apapun): apapun { base(values)[key(1)][key(0)] = rhs(right); }
+fungsi utama(): apapun {}
 """
     script = (
       "import contextlib, io\n"
@@ -172,16 +172,16 @@ fungsi utama() {}
     assert_program_result(run_python(script), "")
 
   def test_indexed_statements_work_in_headers_and_maka(self):
-    source = """fungsi utama() {
-  variabel values = [0, 2, 3];
+    source = """fungsi utama(): apapun {
+  variabel values: apapun = [0, 2, 3];
   untuk (values[0] = 1; values; hapus values[0]) { tampilkan(values[0]); }
-  variabel rows = [[4], [5]];
+  variabel rows: apapun = [[4], [5]];
   jika (benar) maka rows[0][0] = 6;
   jika (benar) maka hapus rows[1];
   tampilkan(rows);
   untuk (hapus rows[0]; salah;) {}
   tampilkan(rows);
-  variabel count = [0];
+  variabel count: apapun = [0];
   untuk (; count[0] < 2; count[0] = count[0] + 1) { tampilkan(count[0]); }
 }
 """
@@ -190,24 +190,24 @@ fungsi utama() {}
   def test_element_changes_keep_binding_and_update_initialization_rules(self):
     bodies = (
       "missing[0] = 1;", "hapus missing[0];",
-      "values[0] = 1; variabel values = [0];",
-      "variabel values = [0]; hasilkan; values[key] = 1;",
-      "variabel values = [0]; hasilkan; hapus values[key];",
-      "variabel values = [0]; values[0] = missing;",
-      "selama (salah) { variabel values = [0]; values[0] = 1; } tampilkan(values);",
+      "values[0] = 1; variabel values: apapun = [0];",
+      "variabel values: apapun = [0]; hasilkan; values[key] = 1;",
+      "variabel values: apapun = [0]; hasilkan; hapus values[key];",
+      "variabel values: apapun = [0]; values[0] = missing;",
+      "selama (salah) { variabel values: apapun = [0]; values[0] = 1; } tampilkan(values);",
     )
     for body in bodies:
       with self.subTest(body=body):
         self.assert_rejected(body)
 
-    source = """fungsi probe(flag) {
-  untuk (variabel index = 0; index < 1; index += step[0]) {
+    source = """fungsi probe(flag: apapun): apapun {
+  untuk (variabel index: apapun = 0; index < 1; index += step[0]) {
     jika (flag) { berhenti; }
-    variabel step = [1];
+    variabel step: apapun = [1];
   }
   hasilkan 9;
 }
-fungsi utama() { tampilkan(probe(benar), probe(salah)); }
+fungsi utama(): apapun { tampilkan(probe(benar), probe(salah)); }
 """
     assert_program_result(run_source(source), "99")
 
@@ -215,12 +215,12 @@ fungsi utama() { tampilkan(probe(benar), probe(salah)); }
     for body in ("hapus values;", "hapus tampilkan();", "hapus;", "hapus values[0], values[1];"):
       with self.subTest(body=body):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ variabel values = [1, 2]; {body} }}")
+          parse_module(f"fungsi utama(): apapun {{ variabel values: apapun = [1, 2]; {body} }}")
 
   def test_native_mutation_errors_remain_runtime_errors(self):
-    source = """fungsi store(values, key) { values[key] = 9; }
-fungsi remove(values, key) { hapus values[key]; }
-fungsi utama() {}
+    source = """fungsi store(values: apapun, key: apapun): apapun { values[key] = 9; }
+fungsi remove(values: apapun, key: apapun): apapun { hapus values[key]; }
+fungsi utama(): apapun {}
 """
     script = (
       "from pyindo.compiler import compile_source\n"
@@ -238,9 +238,9 @@ fungsi utama() {}
     assert_program_result(run_python(script), "")
 
   def test_membership_evaluates_left_to_right_and_returns_booleans(self):
-    source = """fungsi mark(label, value) { tampilkan(label); hasilkan value; }
-fungsi contains(item, values) { hasilkan item didalam values; }
-fungsi utama() {
+    source = """fungsi mark(label: apapun, value: apapun): apapun { tampilkan(label); hasilkan value; }
+fungsi contains(item: apapun, values: apapun): apapun { hasilkan item didalam values; }
+fungsi utama(): apapun {
   tampilkan(mark("I", 2) didalam mark("C", [1, 2]));
   tampilkan([1] didalam [[1]], "afé" didalam "café", 7 didalam []);
 }
@@ -262,7 +262,7 @@ fungsi utama() {
     assert_program_result(run_source(source), "ICTrueTrueTrueFalse")
 
   def test_nonempty_returns_exact_bool_for_supported_values(self):
-    source = "fungsi nonempty(value) { hasilkan value tidak kosong; } fungsi utama() {}"
+    source = "fungsi nonempty(value: apapun): apapun { hasilkan value tidak kosong; } fungsi utama(): apapun {}"
     script = (
       "from pyindo.compiler import compile_source\n"
       "from pyindo.values import freeze_constant_value\n"
@@ -276,13 +276,13 @@ fungsi utama() {
     assert_program_result(run_python(script), "")
 
   def test_nonempty_tests_host_truth_once_in_value_and_control_contexts(self):
-    source = """fungsi value(item) { hasilkan item tidak kosong; }
-fungsi negated(item) { hasilkan tidak item tidak kosong; }
-fungsi logic(item) { hasilkan item tidak kosong dan 7; }
-fungsi condition(item) { jika (item tidak kosong) { hasilkan 1; } hasilkan 0; }
-fungsi looping(item) { selama (item tidak kosong) { hasilkan 1; } hasilkan 0; }
-fungsi counting(item) { untuk (; item tidak kosong;) { hasilkan 1; } hasilkan 0; }
-fungsi utama() {}
+    source = """fungsi value(item: apapun): apapun { hasilkan item tidak kosong; }
+fungsi negated(item: apapun): apapun { hasilkan tidak item tidak kosong; }
+fungsi logic(item: apapun): apapun { hasilkan item tidak kosong dan 7; }
+fungsi condition(item: apapun): apapun { jika (item tidak kosong) { hasilkan 1; } hasilkan 0; }
+fungsi looping(item: apapun): apapun { selama (item tidak kosong) { hasilkan 1; } hasilkan 0; }
+fungsi counting(item: apapun): apapun { untuk (; item tidak kosong;) { hasilkan 1; } hasilkan 0; }
+fungsi utama(): apapun {}
 """
     script = (
       "from pyindo.compiler import compile_source\n"
@@ -306,9 +306,9 @@ fungsi utama() {}
     assert_program_result(run_python(script), "")
 
   def test_contextual_phrase_preserves_names_and_precedence(self):
-    local_source = """fungsi utama() {
-  variabel kosong = [1];
-  variabel kosongkan = [1];
+    local_source = """fungsi utama(): apapun {
+  variabel kosong: apapun = [1];
+  variabel kosongkan: apapun = [1];
   tampilkan(kosong tidak kosong, tidak kosong);
   tampilkan(kosongkan tidak /* comment */ kosong);
   tampilkan(0 + 1 tidak kosong, (kosong tidak kosong) + 1);
@@ -317,7 +317,7 @@ fungsi utama() {}
 """
     assert_program_result(run_source(local_source), "TrueFalseTrueTrue2TrueFalse")
     assert_program_result(
-      run_source("fungsi kosong() {} fungsi utama() { tampilkan(tidak kosong()); }"), "True",
+      run_source("fungsi kosong(): apapun {} fungsi utama(): apapun { tampilkan(tidak kosong()); }"), "True",
     )
 
   def test_predicate_suffixes_and_mixed_comparison_chains_are_rejected(self):
@@ -332,11 +332,11 @@ fungsi utama() {}
     for expression in expressions:
       with self.subTest(expression=expression):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ hasilkan {expression}; }}")
+          parse_module(f"fungsi utama(): apapun {{ hasilkan {expression}; }}")
 
   def test_predicate_laziness_does_not_hide_static_errors(self):
-    source = """fungsi marker() { tampilkan("R"); hasilkan [1]; }
-fungsi utama() {
+    source = """fungsi marker(): apapun { tampilkan("R"); hasilkan [1]; }
+fungsi utama(): apapun {
   tampilkan(salah dan 1 didalam marker(), benar atau marker() tidak kosong);
 }
 """
@@ -345,7 +345,7 @@ fungsi utama() {
       "tampilkan(salah dan 1 didalam missing);",
       "tampilkan(benar atau missing tidak kosong);",
       "hasilkan; tampilkan(missing tidak kosong);",
-      "tampilkan(values tidak kosong); variabel values = [];",
+      "tampilkan(values tidak kosong); variabel values: apapun = [];",
     ):
       with self.subTest(body=body):
         self.assert_rejected(body)
@@ -369,7 +369,7 @@ fungsi utama() {
         self.assertIn(expected, disassembly)
 
   def test_collection_instructions_keep_checked_loads_and_utf8_positions(self):
-    source = ('fungsi utama() { variabel values = [[7]]; konstanta saved = values; '
+    source = ('fungsi utama(): apapun { variabel values: apapun = [[7]]; konstanta saved: apapun = values; '
               'tampilkan("café ${saved[0][0] didalam [7]}|${values tidak kosong}"); '
               'values[0][0] = 8; hapus values[0][0]; }')
     body = parse_module(source).functions[0].body
@@ -402,16 +402,16 @@ fungsi utama() {
     for expression in expressions:
       with self.subTest(prefix=expression[:25]):
         with self.assertRaisesRegex(PyIndoError, "complexity exceeds compiler limit") as raised:
-          analyze_program(parse_module(f"fungsi utama() {{ hasilkan {expression}; }}"))
+          analyze_program(parse_module(f"fungsi utama(): apapun {{ hasilkan {expression}; }}"))
         self.assertIsNotNone(raised.exception.span)
 
   def test_cli_distinguishes_compile_errors_from_runtime_index_errors(self):
-    completed = run_source("fungsi utama() { konstanta saved = [1]; saved[0] = 9; }")
+    completed = run_source("fungsi utama(): apapun { konstanta saved: apapun = [1]; saved[0] = 9; }")
     self.assertEqual(completed.returncode, 70)
     self.assertIn("Cannot mutate constant 'saved'", completed.stdout)
     self.assertEqual(completed.stderr, "")
 
-    completed = run_source("fungsi utama() { variabel values = []; tampilkan(values[0]); }")
+    completed = run_source("fungsi utama(): apapun { variabel values: apapun = []; tampilkan(values[0]); }")
     self.assertEqual(completed.returncode, 1)
     self.assertEqual(completed.stdout, "")
     self.assertIn("IndexError", completed.stderr)
@@ -424,7 +424,7 @@ fungsi utama() {
       "assert 'pyindo.values' not in sys.modules\n"
       "with patch.object(sys, 'version_info', (3, 14, 0)):\n"
       "  try:\n"
-      "    compile_source('fungsi utama() { konstanta saved = [1]; }')\n"
+      "    compile_source('fungsi utama(): apapun { konstanta saved: apapun = [1]; }')\n"
       "  except RuntimeError as error:\n"
       "    assert 'requires CPython 3.15.x' in str(error)\n"
       "  else:\n"

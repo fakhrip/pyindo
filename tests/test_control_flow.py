@@ -16,7 +16,7 @@ class ControlFlowTests(unittest.TestCase):
 from pyindo.parser import parse_program
 from pyindo.compiler import compile_bytecodes
 for sentinel in ('', '\\0'):
-  instructions, chunks = parse_program('fungsi helper() { hasilkan 3; } fungsi utama() {}' + sentinel)
+  instructions, chunks = parse_program('fungsi helper(): apapun { hasilkan 3; } fungsi utama(): apapun {}' + sentinel)
   assert isinstance(instructions, list)
   assert all(isinstance(chunk, CodeType) for chunk in chunks)
   assert [chunk.co_name for chunk in chunks] == ['helper', 'utama']
@@ -30,7 +30,7 @@ for sentinel in ('', '\\0'):
   def test_parser_facade_rejects_embedded_nul(self):
     script = """from pyindo.parser import parse_program
 try:
-  parse_program('fungsi utama() {}\\0fungsi helper() {}')
+  parse_program('fungsi utama(): apapun {}\\0fungsi helper() {}')
 except SystemExit as error:
   assert error.code == 70
 else:
@@ -43,10 +43,10 @@ else:
     self.assertEqual(completed_process.stderr, "")
 
   def test_repeated_calls_continue_to_the_next_statement(self):
-    source_text = """fungsi helper() {
+    source_text = """fungsi helper(): apapun {
   tampilkan("helper");
 }
-fungsi utama() {
+fungsi utama(): apapun {
   helper();
   helper();
   tampilkan("after");
@@ -60,14 +60,14 @@ fungsi utama() {
       assert_program_result(run_program(source_path), "helperhelperafter")
 
   def test_a_helper_can_call_another_helper_and_continue(self):
-    source_text = """fungsi first() {
+    source_text = """fungsi first(): apapun {
   tampilkan("one");
 }
-fungsi second() {
+fungsi second(): apapun {
   first();
   tampilkan("two");
 }
-fungsi utama() {
+fungsi utama(): apapun {
   second();
   tampilkan("end");
 }
@@ -80,7 +80,7 @@ fungsi utama() {
       assert_program_result(run_program(source_path), "onetwoend")
 
   def test_helper_has_function_metadata_and_returns_none_repeatedly(self):
-    source_text = 'fungsi helper() { tampilkan("h"); } fungsi utama() {}\0'
+    source_text = 'fungsi helper(): apapun { tampilkan("h"); } fungsi utama(): apapun {}\0'
     script = (
       "from pyindo.parser import parse_program; "
       "from pyindo.compiler import compile_bytecodes; "

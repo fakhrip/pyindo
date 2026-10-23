@@ -6,7 +6,7 @@ from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
   Declaration, Delete, For, Function, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
-  Parameter, Program, Return, Unary, While,
+  Parameter, Program, Return, TypeAnnotation, Unary, While,
 )
 
 
@@ -22,7 +22,6 @@ BINDING_POWER = {
 }
 UNSUPPORTED = {
   "cocokkan",
-  ":",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
 
@@ -89,7 +88,7 @@ class Parser:
 
   def parse_function(self) -> Function:
     """
-    Parse an untyped positional signature and its braced function body.
+    Parse a mandatory typed positional signature and its braced function body.
     """
 
     opening = self.expect("fungsi")
@@ -100,17 +99,58 @@ class Parser:
     if self.current.text != ")":
       while True:
         parameter = self.expect_name("parameter name or ')'")
-        parameters.append(Parameter(parameter.text, parameter.span))
+        self.expect(":")
+        annotation = self.parse_type_annotation()
+        parameters.append(Parameter(parameter.text, parameter.span, annotation))
 
         if not self.match(","):
           break
 
     self.expect(")")
+    self.expect(":")
+    return_annotation = self.parse_type_annotation()
     body, closing = self.parse_block()
 
     return Function(
       name.text, parameters, body, opening.span.through(closing.span), name_span=name.span,
+      return_annotation=return_annotation,
     )
+
+  def parse_type_annotation(self) -> TypeAnnotation:
+    """
+    Read contextual type names without reserving them in ordinary expressions.
+    """
+
+    name = self.expect_name("type name")
+    arguments = []
+    closing = name
+
+    if self.match("<"):
+      arguments.append(self.parse_type_annotation())
+      closing = self.consume_type_close()
+
+    return TypeAnnotation(name.text, arguments, name.span.through(closing.span))
+
+  def consume_type_close(self):
+    """
+    Peel one generic closer, retaining a located operator remainder in the cursor.
+    """
+
+    token = self.current
+    if token.text not in (">", ">=", ">>", ">>="):
+      raise self.expected("'>'")
+
+    source_map = SourceMap(self.source_text)
+    closer = replace(token, text=">", value=">", span=source_map.span(token.span.start, token.span.start + 1))
+    if len(token.text) == 1:
+      self.advance()
+    else:
+      remainder = token.text[1:]
+      self.tokens[self.position] = replace(
+        token, text=remainder, value=remainder,
+        span=source_map.span(token.span.start + 1, token.span.end),
+      )
+    return closer
 
   def parse_block(self):
     """
@@ -181,10 +221,13 @@ class Parser:
 
       self.advance()
       name = self.expect_name()
+      self.expect(":")
+      annotation = self.parse_type_annotation()
       self.expect("=")
       value = self.parse_expression()
       return Declaration(
         name.text, value, opening.text == "konstanta", opening.span.through(value.span),
+        annotation,
       )
 
     if opening.kind == TokenKind.NAME:

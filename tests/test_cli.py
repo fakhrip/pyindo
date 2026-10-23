@@ -51,7 +51,7 @@ class CliTests(unittest.TestCase):
   def test_malformed_condition_stays_inside_the_compilation_error_boundary(self):
     with tempfile.TemporaryDirectory() as temporary_directory:
       source_path = Path(temporary_directory) / "empty_condition.pyind"
-      source_path.write_text("fungsi utama() { jika () {} }", encoding="utf-8")
+      source_path.write_text("fungsi utama(): apapun { jika () {} }", encoding="utf-8")
 
       completed_process = run_program(source_path)
 
@@ -78,7 +78,7 @@ class CliTests(unittest.TestCase):
     with tempfile.TemporaryDirectory(prefix="pyindo ruang ") as temporary_directory:
       source_path = Path(temporary_directory) / "bahasa é.pyind"
       source_path.write_text(
-        'fungsi utama() { tampilkan("Selamat datang, café ☕"); }\n',
+        'fungsi utama(): apapun { tampilkan("Selamat datang, café ☕"); }\n',
         encoding="utf-8",
       )
 
@@ -86,8 +86,8 @@ class CliTests(unittest.TestCase):
 
   def test_debug_output_never_replaces_source_and_includes_helpers(self):
     source_text = (
-      'fungsi helper() { tampilkan("h"); }\n'
-      'fungsi utama() { helper(); }\n'
+      'fungsi helper(): apapun { tampilkan("h"); }\n'
+      'fungsi utama(): apapun { helper(); }\n'
     )
 
     for filename in ("example.pyind", "example", "example.dis"):
@@ -136,7 +136,7 @@ class CliTests(unittest.TestCase):
     assert_program_result(run_python(script), "42\n")
 
   def test_nested_code_objects_keep_the_source_filename(self):
-    source_text = 'fungsi helper() {} fungsi utama() {}\0'
+    source_text = 'fungsi helper(): apapun {} fungsi utama(): apapun {}\0'
     script = (
       "from types import CodeType; "
       "from pyindo.parser import parse_program; "
@@ -150,10 +150,10 @@ class CliTests(unittest.TestCase):
     assert_program_result(run_python(script), "source.pyind helper\n")
 
   def test_entrypoint_return_does_not_choose_the_cli_status(self):
-    assert_program_result(run_source("fungsi utama() { hasilkan 1337; }"), "")
+    assert_program_result(run_source("fungsi utama(): apapun { hasilkan 1337; }"), "")
 
   def test_source_complexity_limit_has_a_structured_diagnostic(self):
-    source = "fungsi utama() { hasilkan 1" + " + 1" * 1200 + "; }"
+    source = "fungsi utama(): apapun { hasilkan 1" + " + 1" * 1200 + "; }"
 
     assert_program_result(
       run_source(source),
@@ -162,22 +162,22 @@ class CliTests(unittest.TestCase):
     )
 
   def test_optimization_preserves_the_new_language(self):
-    source = """fungsi utama() {
-  variabel value = jumlah(2, 3);
+    source = """fungsi utama(): apapun {
+  variabel value: apapun = jumlah(2, 3);
   jika (value > 0) { tampilkan("${value}"); }
 }
-fungsi jumlah(a, b) { hasilkan a + b; }
+fungsi jumlah(a: apapun, b: apapun): apapun { hasilkan a + b; }
 """
 
     assert_program_result(run_source(source, ("-O",)), "5")
 
   def test_invalid_new_language_syntax_has_a_located_user_error(self):
     for body in (
-      "variabel value = value;", "missing();", "hasilkan 1 < 2 < 3;",
-      "untuk (variabel i: desimal = 0; i < 2; i++) {}", "tampilkan(\"${}\");",
+      "variabel value: apapun = value;", "missing();", "hasilkan 1 < 2 < 3;",
+      "untuk (variabel i: himpunan<> = 0; i < 2; i++) {}", "tampilkan(\"${}\");",
     ):
       with self.subTest(body=body):
-        completed_process = run_source(f"fungsi utama() {{ {body} }}")
+        completed_process = run_source(f"fungsi utama(): apapun {{ {body} }}")
 
         self.assertEqual(completed_process.returncode, 70)
         self.assertTrue(completed_process.stdout.startswith("Error: "))

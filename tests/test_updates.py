@@ -13,9 +13,9 @@ class UpdateTests(unittest.TestCase):
       ("<<", 3, 2, 12), (">>", 8, 2, 2),
     ]
     source = "\n".join(
-      f"fungsi case_{index}(value) {{ value {operator}= {right}; hasilkan value; }}"
+      f"fungsi case_{index}(value: apapun): apapun {{ value {operator}= {right}; hasilkan value; }}"
       for index, (operator, _, right, _) in enumerate(cases)
-    ) + "\nfungsi utama() {}"
+    ) + "\nfungsi utama(): apapun {}"
     script = (
       "from pyindo.compiler import compile_source\n"
       "namespace = {'__name__': 'inspection'}\n"
@@ -28,8 +28,8 @@ class UpdateTests(unittest.TestCase):
     assert_program_result(run_python(script), "")
 
   def test_postfix_updates_are_stack_neutral_statements(self):
-    source = """fungsi utama() {
-  variabel value = 0;
+    source = """fungsi utama(): apapun {
+  variabel value: apapun = 0;
   value++;
   value++;
   value--;
@@ -42,22 +42,22 @@ class UpdateTests(unittest.TestCase):
     assert_program_result(run_source(source), "13")
 
   def test_update_rhs_runs_once(self):
-    source = """fungsi right() { tampilkan("R"); hasilkan 3; }
-fungsi utama() { variabel value = 2; value += right(); tampilkan(value); }
+    source = """fungsi right(): apapun { tampilkan("R"); hasilkan 3; }
+fungsi utama(): apapun { variabel value: apapun = 2; value += right(); tampilkan(value); }
 """
 
     assert_program_result(run_source(source), "R5")
 
   def test_targets_must_be_initialized_mutable_names(self):
     bodies = [
-      "missing += 1;", "value++; variabel value = 1;",
-      "konstanta value = 1; value++;", "konstanta value = 1; value -= 1;",
-      "konstanta value = 1; hasilkan; value--;",
+      "missing += 1;", "value++; variabel value: apapun = 1;",
+      "konstanta value: apapun = 1; value++;", "konstanta value: apapun = 1; value -= 1;",
+      "konstanta value: apapun = 1; hasilkan; value--;",
     ]
 
     for body in bodies:
       with self.subTest(body=body):
-        completed = run_source(f"fungsi utama() {{ {body} }}")
+        completed = run_source(f"fungsi utama(): apapun {{ {body} }}")
 
         self.assertEqual(completed.returncode, 70)
         self.assertTrue(completed.stdout.startswith("Error: "))
@@ -73,4 +73,4 @@ fungsi utama() { variabel value = 2; value += right(); tampilkan(value); }
     for body in bodies:
       with self.subTest(body=body):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ variabel value = 1; {body} }}")
+          parse_module(f"fungsi utama(): apapun {{ variabel value: apapun = 1; {body} }}")

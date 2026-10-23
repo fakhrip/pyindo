@@ -1,4 +1,4 @@
-fungsi utama() {
+fungsi utama(): desimal {
     tampilkan("halo dunia!");
     hasilkan 1337;
 }

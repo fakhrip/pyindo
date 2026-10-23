@@ -1,1 +1,1 @@
-fungsi utama(){tampilkan("Halo Dunia!");}
+fungsi utama(): kosong{tampilkan("Halo Dunia!");}

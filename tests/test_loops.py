@@ -8,16 +8,16 @@ from pyindo.syntax import parse_module
 from tests.fixture_runner import assert_program_result, run_program, run_python, run_source
 
 
-CONTROL_FLOW_PROGRAM = """fungsi utama() {
-  variabel total = 0;
+CONTROL_FLOW_PROGRAM = """fungsi utama(): apapun {
+  variabel total: apapun = 0;
 
-  untuk (variabel angka = 0; angka < 6; angka++) {
+  untuk (variabel angka: apapun = 0; angka < 6; angka++) {
     jika (angka adalah 2) maka lewati;
     jika (angka adalah 5) maka berhenti;
     total += angka;
   }
 
-  variabel sisa = 2;
+  variabel sisa: apapun = 2;
 
   selama (sisa > 0 dan total > 0) {
     sisa -= 1;
@@ -26,7 +26,7 @@ CONTROL_FLOW_PROGRAM = """fungsi utama() {
   cetak(total);
 }
 
-fungsi cetak(nilai) {
+fungsi cetak(nilai: apapun): apapun {
   tampilkan(nilai);
 }
 """
@@ -40,29 +40,29 @@ class LoopTests(unittest.TestCase):
   def test_while_zero_one_and_many_iterations(self):
     for count, expected in ((0, "A"), (1, "0A"), (3, "012A")):
       with self.subTest(count=count):
-        source = f"""fungsi utama() {{
-  variabel index = 0;
+        source = f"""fungsi utama(): apapun {{
+  variabel index: apapun = 0;
   selama (index < {count}) {{ tampilkan(index); index++; }}
   tampilkan("A");
 }}"""
 
         assert_program_result(run_source(source), expected)
 
-    assert_program_result(run_source('fungsi utama() { selama (salah) {} tampilkan("A"); }'), "A")
+    assert_program_result(run_source('fungsi utama(): apapun { selama (salah) {} tampilkan("A"); }'), "A")
 
   def test_while_conditions_accept_general_truthiness(self):
-    source = """fungsi probe(value) {
+    source = """fungsi probe(value: apapun): apapun {
   selama (value) { tampilkan("T"); value = 0; }
   tampilkan("A");
 }
-fungsi utama() { probe(0); probe(1); probe(""); probe("yes"); }
+fungsi utama(): apapun { probe(0); probe(1); probe(""); probe("yes"); }
 """
 
     assert_program_result(run_source(source), "ATAATA")
 
   def test_while_continue_rechecks_condition_and_break_exits(self):
-    source = """fungsi utama() {
-  variabel index = 0;
+    source = """fungsi utama(): apapun {
+  variabel index: apapun = 0;
   selama (index < 4) {
     index++;
     jika (index == 2) { lewati; }
@@ -76,10 +76,10 @@ fungsi utama() { probe(0); probe(1); probe(""); probe("yes"); }
     assert_program_result(run_source(source), "13A")
 
   def test_nested_while_control_targets_the_nearest_loop(self):
-    source = """fungsi utama() {
-  variabel outer = 0;
+    source = """fungsi utama(): apapun {
+  variabel outer: apapun = 0;
   selama (outer < 2) {
-    variabel inner = 0;
+    variabel inner: apapun = 0;
     selama (inner < 3) {
       inner++;
       jika (inner == 1) { lewati; }
@@ -95,24 +95,24 @@ fungsi utama() { probe(0); probe(1); probe(""); probe("yes"); }
     assert_program_result(run_source(source), "0212A")
 
   def test_return_exits_the_function_from_inside_a_loop(self):
-    source = """fungsi probe() {
+    source = """fungsi probe(): apapun {
   selama (benar) { jika (benar) { hasilkan 7; } }
   tampilkan("unreachable");
 }
-fungsi utama() { tampilkan(probe()); }
+fungsi utama(): apapun { tampilkan(probe()); }
 """
 
     assert_program_result(run_source(source), "7")
 
   def test_loop_body_declarations_do_not_initialize_post_loop_reads(self):
-    self.assert_rejected("fungsi utama() { selama (salah) { variabel value = 1; } tampilkan(value); }")
-    self.assert_rejected("fungsi utama() { variabel value = 0; selama (salah) { variabel value = 1; } }")
-    self.assert_rejected("fungsi utama() { selama (benar) { konstanta value = 1; value++; berhenti; } }")
+    self.assert_rejected("fungsi utama(): apapun { selama (salah) { variabel value: apapun = 1; } tampilkan(value); }")
+    self.assert_rejected("fungsi utama(): apapun { variabel value: apapun = 0; selama (salah) { variabel value: apapun = 1; } }")
+    self.assert_rejected("fungsi utama(): apapun { selama (benar) { konstanta value: apapun = 1; value++; berhenti; } }")
 
   def test_constant_declaration_can_execute_on_each_iteration(self):
-    source = """fungsi utama() {
-  variabel index = 0;
-  selama (index < 3) { konstanta snapshot = index; tampilkan(snapshot); index++; }
+    source = """fungsi utama(): apapun {
+  variabel index: apapun = 0;
+  selama (index < 3) { konstanta snapshot: apapun = index; tampilkan(snapshot); index++; }
 }
 """
 
@@ -121,40 +121,40 @@ fungsi utama() { tampilkan(probe()); }
   def test_loop_control_outside_a_loop_is_rejected_even_when_unreachable(self):
     for statement in ("berhenti;", "lewati;"):
       with self.subTest(statement=statement):
-        self.assert_rejected(f"fungsi utama() {{ {statement} }}")
-        self.assert_rejected(f"fungsi utama() {{ hasilkan; {statement} }}")
-        self.assert_rejected(f"fungsi helper() {{ {statement} }} fungsi utama() {{ selama (salah) {{ helper(); }} }}")
+        self.assert_rejected(f"fungsi utama(): apapun {{ {statement} }}")
+        self.assert_rejected(f"fungsi utama(): apapun {{ hasilkan; {statement} }}")
+        self.assert_rejected(f"fungsi helper(): apapun {{ {statement} }} fungsi utama(): apapun {{ selama (salah) {{ helper(); }} }}")
 
   def test_while_requires_a_condition_and_braced_body(self):
     for body in ("selama () {}", "selama benar {}", "selama (benar) maka berhenti;", "selama (salah) {} selainnya {}"):
       with self.subTest(body=body):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ {body} }}")
+          parse_module(f"fungsi utama(): apapun {{ {body} }}")
 
   def test_for_header_slots_are_optional_but_separators_are_required(self):
-    for initializer in ("", "variabel index = 0"):
+    for initializer in ("", "variabel index: apapun = 0"):
       for condition in ("", "benar"):
         for update in ("", "index++"):
-          source = f"fungsi utama() {{ untuk ({initializer}; {condition}; {update}) {{}} }}"
+          source = f"fungsi utama(): apapun {{ untuk ({initializer}; {condition}; {update}) {{}} }}"
           node = parse_module(source).functions[0].body[0]
 
           self.assertEqual(node.initializer is None, initializer == "")
           self.assertEqual(node.condition is None, condition == "")
           self.assertEqual(node.update is None, update == "")
 
-    for header in ("variabel index = 0 index < 2; index++", ";; variabel index = 1", "variabel index: desimal = 0;;", ";; index++, index++"):
+    for header in ("variabel index: apapun = 0 index < 2; index++", ";; variabel index: apapun = 1", "variabel index: himpunan<> = 0;;", ";; index++, index++"):
       with self.subTest(header=header):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ untuk ({header}) {{}} }}")
+          parse_module(f"fungsi utama(): apapun {{ untuk ({header}) {{}} }}")
 
   def test_for_execution_order_and_zero_iterations(self):
     for initial, expected in ((0, "ICBUCBUCA"), (2, "ICA")):
       with self.subTest(initial=initial):
-        source = f"""fungsi mark(text) {{ tampilkan(text); }}
-fungsi condition(index) {{ tampilkan("C"); hasilkan index < 2; }}
-fungsi update(index) {{ tampilkan("U"); hasilkan index + 1; }}
-fungsi utama() {{
-  variabel index = {initial};
+        source = f"""fungsi mark(text: apapun): apapun {{ tampilkan(text); }}
+fungsi condition(index: apapun): apapun {{ tampilkan("C"); hasilkan index < 2; }}
+fungsi update(index: apapun): apapun {{ tampilkan("U"); hasilkan index + 1; }}
+fungsi utama(): apapun {{
+  variabel index: apapun = {initial};
   untuk (mark("I"); condition(index); index = update(index)) {{ mark("B"); }}
   mark("A");
 }}"""
@@ -162,18 +162,18 @@ fungsi utama() {{
         assert_program_result(run_source(source), expected)
 
   def test_for_continue_runs_update_once(self):
-    source = """fungsi update(index) { tampilkan(index); hasilkan index + 1; }
-fungsi utama() {
-  untuk (variabel index = 0; index < 4; index = update(index)) { lewati; }
+    source = """fungsi update(index: apapun): apapun { tampilkan(index); hasilkan index + 1; }
+fungsi utama(): apapun {
+  untuk (variabel index: apapun = 0; index < 4; index = update(index)) { lewati; }
 }
 """
 
     assert_program_result(run_source(source), "0123")
 
   def test_for_break_and_return_skip_update(self):
-    source = """fungsi update() { tampilkan("unexpected"); }
-fungsi probe() { untuk (;; update()) { hasilkan 7; } }
-fungsi utama() {
+    source = """fungsi update(): apapun { tampilkan("unexpected"); }
+fungsi probe(): apapun { untuk (;; update()) { hasilkan 7; } }
+fungsi utama(): apapun {
   untuk (;; update()) { berhenti; }
   tampilkan(probe());
 }
@@ -182,20 +182,20 @@ fungsi utama() {
     assert_program_result(run_source(source), "7")
 
   def test_for_initializer_is_visible_after_zero_iterations(self):
-    source = "fungsi utama() { untuk (variabel index = 0; salah; index++) {} tampilkan(index); }"
+    source = "fungsi utama(): apapun { untuk (variabel index: apapun = 0; salah; index++) {} tampilkan(index); }"
 
     assert_program_result(run_source(source), "0")
-    self.assert_rejected("fungsi utama() { untuk (index = 0; salah;) {} }")
-    self.assert_rejected("fungsi utama() { untuk (variabel index = index; salah;) {} }")
-    self.assert_rejected("fungsi utama() { variabel index = 0; untuk (variabel index = 0; salah;) {} }")
-    self.assert_rejected("fungsi utama() { untuk (variabel index = 0; salah;) { variabel index = 1; } }")
-    self.assert_rejected("fungsi utama() { untuk (;;) { variabel value = 1; berhenti; } tampilkan(value); }")
+    self.assert_rejected("fungsi utama(): apapun { untuk (index = 0; salah;) {} }")
+    self.assert_rejected("fungsi utama(): apapun { untuk (variabel index: apapun = index; salah;) {} }")
+    self.assert_rejected("fungsi utama(): apapun { variabel index: apapun = 0; untuk (variabel index: apapun = 0; salah;) {} }")
+    self.assert_rejected("fungsi utama(): apapun { untuk (variabel index: apapun = 0; salah;) { variabel index: apapun = 1; } }")
+    self.assert_rejected("fungsi utama(): apapun { untuk (;;) { variabel value: apapun = 1; berhenti; } tampilkan(value); }")
 
   def test_empty_continue_state_is_a_real_update_path(self):
-    source = """fungsi utama() {
+    source = """fungsi utama(): apapun {
   untuk (; salah; value++) {
     jika (benar) { lewati; }
-    variabel value = 0;
+    variabel value: apapun = 0;
   }
 }"""
 
@@ -203,66 +203,66 @@ fungsi utama() {
       analyze_program(parse_module(source))
 
   def test_dead_declarations_cannot_authorize_a_live_update(self):
-    source = """fungsi probe(flag) {
-  untuk (variabel index = 0; index < 1; index += step) {
+    source = """fungsi probe(flag: apapun): apapun {
+  untuk (variabel index: apapun = 0; index < 1; index += step) {
     jika (flag) { lewati; } selainnya { hasilkan; }
-    variabel step = 1;
+    variabel step: apapun = 1;
   }
 }
-fungsi utama() {}
+fungsi utama(): apapun {}
 """
 
     with self.assertRaisesRegex(PyIndoError, "not initialized"):
       analyze_program(parse_module(source))
 
   def test_dead_nested_continues_do_not_poison_update_joins(self):
-    source = """fungsi probe(flag) {
-  untuk (variabel index = 0; index < 1; index += step) {
+    source = """fungsi probe(flag: apapun): apapun {
+  untuk (variabel index: apapun = 0; index < 1; index += step) {
     jika (flag) {
       hasilkan 8;
       jika (benar) { lewati; } selainnya { lewati; }
     }
-    variabel step = 1;
+    variabel step: apapun = 1;
   }
   hasilkan 9;
 }
-fungsi utama() { tampilkan(probe(salah), probe(benar)); }
+fungsi utama(): apapun { tampilkan(probe(salah), probe(benar)); }
 """
 
     assert_program_result(run_source(source), "98")
 
   def test_breaking_paths_do_not_weaken_live_update_initialization(self):
-    source = """fungsi probe(flag) {
-  untuk (variabel index = 0; index < 1; index += step) {
+    source = """fungsi probe(flag: apapun): apapun {
+  untuk (variabel index: apapun = 0; index < 1; index += step) {
     jika (flag) { berhenti; }
-    variabel step = 1;
+    variabel step: apapun = 1;
   }
   hasilkan 9;
 }
-fungsi utama() { tampilkan(probe(benar), probe(salah)); }
+fungsi utama(): apapun { tampilkan(probe(benar), probe(salah)); }
 """
 
     assert_program_result(run_source(source), "99")
 
   def test_unreachable_update_uses_diagnostic_cursor_and_checks_constants(self):
-    source = """fungsi utama() {
-  untuk (variabel index = 0; index < 1; index += step) {
+    source = """fungsi utama(): apapun {
+  untuk (variabel index: apapun = 0; index < 1; index += step) {
     berhenti;
-    variabel step = 1;
+    variabel step: apapun = 1;
   }
   tampilkan("A");
 }
 """
 
     assert_program_result(run_source(source), "A")
-    self.assert_rejected("fungsi utama() { untuk (konstanta limit = 2; benar; limit++) { berhenti; } }")
+    self.assert_rejected("fungsi utama(): apapun { untuk (konstanta limit: apapun = 2; benar; limit++) { berhenti; } }")
 
   def test_inner_loop_exits_do_not_escape_to_outer_update(self):
-    source = """fungsi utama() {
-  untuk (variabel index = 0; index < 1; index += step) {
+    source = """fungsi utama(): apapun {
+  untuk (variabel index: apapun = 0; index < 1; index += step) {
     selama (salah) { lewati; }
     selama (benar) { berhenti; }
-    variabel step = 1;
+    variabel step: apapun = 1;
   }
   tampilkan(index);
 }
@@ -271,9 +271,9 @@ fungsi utama() { tampilkan(probe(benar), probe(salah)); }
     assert_program_result(run_source(source), "1")
 
   def test_nested_for_continue_targets_its_own_update(self):
-    source = """fungsi utama() {
-  untuk (variabel outer = 0; outer < 2; outer++) {
-    untuk (variabel inner = 0; inner < 3; inner++) {
+    source = """fungsi utama(): apapun {
+  untuk (variabel outer: apapun = 0; outer < 2; outer++) {
+    untuk (variabel inner: apapun = 0; inner < 3; inner++) {
       jika (inner == 1) { lewati; }
       jika (inner == 2) { berhenti; }
       tampilkan(outer, inner);
@@ -285,12 +285,12 @@ fungsi utama() { tampilkan(probe(benar), probe(salah)); }
     assert_program_result(run_source(source), "0010")
 
   def test_maka_mixed_arms_and_following_statements(self):
-    source = """fungsi pilih(value) {
+    source = """fungsi pilih(value: apapun): apapun {
   jika (value == 0) maka hasilkan "zero";
   selainnya jika (value == 1) { hasilkan "one"; }
   selainnya maka hasilkan "other";
 }
-fungsi utama() {
+fungsi utama(): apapun {
   tampilkan(pilih(0), pilih(1), pilih(2));
   tampilkan("after");
 }
@@ -299,13 +299,13 @@ fungsi utama() {
     assert_program_result(run_source(source), "zerooneotherafter")
 
   def test_maka_simple_writes_and_declarations_use_existing_semantics(self):
-    source = """fungsi utama() {
-  variabel value = 0;
+    source = """fungsi utama(): apapun {
+  variabel value: apapun = 0;
   jika (benar) maka value = 2;
   selainnya maka value = 3;
   jika (benar) maka value++;
-  jika (benar) maka variabel unused = 4;
-  jika (salah) maka konstanta fixed = 5;
+  jika (benar) maka variabel unused: apapun = 4;
+  jika (salah) maka konstanta fixed: apapun = 5;
   tampilkan(value);
 }
 """
@@ -313,13 +313,13 @@ fungsi utama() {
     assert_program_result(run_source(source), "3")
 
   def test_maka_loop_control_preserves_continue_and_break_targets(self):
-    source = """fungsi update(index) { tampilkan(index); hasilkan index + 1; }
-fungsi utama() {
-  untuk (variabel index = 0; index < 4; index = update(index)) {
+    source = """fungsi update(index: apapun): apapun { tampilkan(index); hasilkan index + 1; }
+fungsi utama(): apapun {
+  untuk (variabel index: apapun = 0; index < 4; index = update(index)) {
     jika (index < 3) maka lewati;
     selainnya maka berhenti;
   }
-  variabel step = 0;
+  variabel step: apapun = 0;
   selama (step < 4) {
     step++;
     jika (step == 1) maka lewati;
@@ -342,10 +342,10 @@ fungsi utama() {
     for body in bodies:
       with self.subTest(body=body):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ {body} }}")
+          parse_module(f"fungsi utama(): apapun {{ {body} }}")
 
-    self.assert_rejected("fungsi utama() { jika (benar) maka berhenti; }")
-    self.assert_rejected("fungsi utama() { jika (benar) maka lewati; }")
+    self.assert_rejected("fungsi utama(): apapun { jika (benar) maka berhenti; }")
+    self.assert_rejected("fungsi utama(): apapun { jika (benar) maka lewati; }")
 
   def test_complete_control_flow_program_and_optimization_option(self):
     for options in ((), ("-O",)):
@@ -366,7 +366,7 @@ fungsi utama() {
         self.assertIn(expected, disassembly)
 
   def test_new_control_flow_keeps_checked_loads_facade_and_source_positions(self):
-    source = 'fungsi utama() { variabel text = "é"; untuk (; salah;) {} }'
+    source = 'fungsi utama(): apapun { variabel text: apapun = "é"; untuk (; salah;) {} }'
     condition = parse_module(source).functions[0].body[1].condition
     start_column = len(source[:condition.span.start].encode("utf-8"))
     end_column = len(source[:condition.span.end].encode("utf-8"))

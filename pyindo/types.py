@@ -34,3 +34,23 @@ def allows_none(type_spec: TypeSpec) -> bool:
   """
 
   return type_spec in ("apapun", "kosong")
+
+
+def resolve_type(annotation) -> TypeSpec:
+  """
+  Validate source annotations and produce only marshal-safe normalized values.
+  """
+
+  from pyindo.diagnostics import PyIndoError
+
+  if annotation.name == "himpunan":
+    if len(annotation.arguments) != 1:
+      raise PyIndoError("Type 'himpunan' requires one type argument", annotation.span)
+    return ("himpunan", resolve_type(annotation.arguments[0]))
+
+  name = "desimal" if annotation.name == "angka" else annotation.name
+  if name not in SCALAR_TYPES and name != "apapun":
+    raise PyIndoError(f"Unknown type: {annotation.name}", annotation.span)
+  if annotation.arguments:
+    raise PyIndoError(f"Type '{annotation.name}' does not take type arguments", annotation.span)
+  return name

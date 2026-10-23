@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
@@ -7,6 +7,7 @@ from pyindo.nodes import (
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
 )
+from pyindo.types import TypeSpec, allows_none, resolve_type
 
 
 RESERVED_FUNCTION_NAMES = {"tampilkan", "print", "__name__", "__file__", "__builtins__"}
@@ -17,6 +18,8 @@ class FunctionSignature:
   name: str
   parameters: list[str]
   span: SourceSpan
+  parameter_types: tuple[TypeSpec, ...] = ()
+  return_type: TypeSpec = "apapun"
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,8 @@ class FunctionScope:
   parameters: list[str]
   local_names: list[str]
   constant_names: set[str]
+  binding_types: dict[str, TypeSpec] = field(default_factory=dict)
+  return_type: TypeSpec = "apapun"
 
 
 @dataclass(frozen=True)
@@ -203,6 +208,8 @@ class FunctionAnalyzer:
     elif isinstance(statement, Return):
       if statement.value is not None:
         self.expression(statement.value, initialized)
+      elif not allows_none(self.scope.return_type):
+        raise PyIndoError("Return value is required for this function", statement.span)
 
       return FlowResult(initialized, False)
     elif isinstance(statement, CallStatement):
@@ -287,6 +294,16 @@ class FunctionAnalyzer:
     return FlowResult(set(initialized), True)
 
 
+def _binding_type(annotation, span: SourceSpan) -> TypeSpec:
+  """
+  Require annotations even when an embedding caller constructs an AST directly.
+  """
+
+  if annotation is None:
+    raise PyIndoError("Type annotation is required", span)
+  return resolve_type(annotation)
+
+
 def _analyze_program(program: Program) -> ProgramSymbols:
   """
   Register all functions, collect locals, then validate calls and live paths.
@@ -306,6 +323,8 @@ def _analyze_program(program: Program) -> ProgramSymbols:
 
     signatures[function.name] = FunctionSignature(
       function.name, [parameter.name for parameter in function.parameters], function.span,
+      tuple(_binding_type(parameter.annotation, parameter.span) for parameter in function.parameters),
+      _binding_type(function.return_annotation, function.span),
     )
 
   if "utama" not in signatures:
@@ -318,15 +337,16 @@ def _analyze_program(program: Program) -> ProgramSymbols:
     parameters = signatures[function.name].parameters
     local_names = []
     constant_names = set()
+    binding_types = {}
     bindings = [
-      (parameter.name, parameter.span, False) for parameter in function.parameters
+      (parameter.name, parameter.span, False, parameter.annotation) for parameter in function.parameters
     ]
     bindings.extend(
-      (declaration.name, declaration.span, declaration.is_constant)
+      (declaration.name, declaration.span, declaration.is_constant, declaration.annotation)
       for declaration in _declarations(function.body)
     )
 
-    for name, span, is_constant in bindings:
+    for name, span, is_constant, annotation in bindings:
       if name in signatures or name == "tampilkan":
         raise PyIndoError(f"Local name '{name}' conflicts with a function", span)
 
@@ -334,13 +354,19 @@ def _analyze_program(program: Program) -> ProgramSymbols:
         raise PyIndoError(f"Duplicate local declaration: {name}", span)
 
       local_names.append(name)
+      binding_types[name] = _binding_type(annotation, span)
 
       if is_constant:
         constant_names.add(name)
 
-    scope = FunctionScope(function.name, parameters, local_names, constant_names)
+    scope = FunctionScope(
+      function.name, parameters, local_names, constant_names,
+      binding_types, signatures[function.name].return_type,
+    )
     scopes[function.name] = scope
-    FunctionAnalyzer(scope, signatures).block(function.body, set(parameters))
+    flow = FunctionAnalyzer(scope, signatures).block(function.body, set(parameters))
+    if flow.falls_through and not allows_none(scope.return_type):
+      raise PyIndoError("Function may finish without a return value", function.span)
 
   return ProgramSymbols(signatures, scopes)
 

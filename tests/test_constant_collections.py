@@ -13,18 +13,18 @@ class ConstantCollectionTests(unittest.TestCase):
     for statement in ("saved[0] = 9;", "saved[0][0] = 9;", "((saved))[0] = 9;",
                       "hapus saved[0];", "hapus saved[0][0];"):
       with self.subTest(statement=statement):
-        source = f"fungsi utama() {{ konstanta saved = [[1]]; {statement} }}"
+        source = f"fungsi utama(): apapun {{ konstanta saved: apapun = [[1]]; {statement} }}"
         with self.assertRaisesRegex(PyIndoError, "Cannot mutate constant 'saved'"):
           analyze_program(parse_module(source))
 
   def test_aliases_parameters_and_returned_children_cannot_mutate_snapshots(self):
-    source = """fungsi store(value) { value[0] = 9; }
-fungsi remove(value) { hapus value[0]; }
-fungsi child(value) { hasilkan value[0]; }
-fungsi indirect() { konstanta saved = [[1]]; variabel alias = saved; alias[0][0] = 9; }
-fungsi expression() { konstanta saved = [1]; (saved atau [2])[0] = 9; }
-fungsi snapshot(value) { konstanta saved = value; hasilkan saved; }
-fungsi utama() {}
+    source = """fungsi store(value: apapun): apapun { value[0] = 9; }
+fungsi remove(value: apapun): apapun { hapus value[0]; }
+fungsi child(value: apapun): apapun { hasilkan value[0]; }
+fungsi indirect(): apapun { konstanta saved: apapun = [[1]]; variabel alias: apapun = saved; alias[0][0] = 9; }
+fungsi expression(): apapun { konstanta saved: apapun = [1]; (saved atau [2])[0] = 9; }
+fungsi snapshot(value: apapun): apapun { konstanta saved: apapun = value; hasilkan saved; }
+fungsi utama(): apapun {}
 """
     script = (
       "from pyindo.compiler import compile_source\n"
@@ -53,9 +53,9 @@ fungsi utama() {}
     assert_program_result(run_python(script), "")
 
   def test_constant_indices_and_mutable_expression_results_are_not_constant_roots(self):
-    source = """fungsi utama() {
-  konstanta saved = [0];
-  variabel values = [1];
+    source = """fungsi utama(): apapun {
+  konstanta saved: apapun = [0];
+  variabel values: apapun = [1];
   values[saved[0]] = 9;
   (saved + [2])[0] = 7;
   hapus (saved + [2])[0];
@@ -65,12 +65,12 @@ fungsi utama() {}
     assert_program_result(run_source(source), "[9][0]")
 
   def test_source_cycles_fail_and_repeated_snapshots_keep_old_values(self):
-    source = """fungsi cycle() { variabel values = [0]; values[0] = values; konstanta saved = values; }
-fungsi utama() {
-  variabel values = [0];
-  variabel results = [0, 0];
-  untuk (variabel index = 0; index < 2; index++) {
-    konstanta saved = values;
+    source = """fungsi cycle(): apapun { variabel values: apapun = [0]; values[0] = values; konstanta saved: apapun = values; }
+fungsi utama(): apapun {
+  variabel values: apapun = [0];
+  variabel results: apapun = [0, 0];
+  untuk (variabel index: apapun = 0; index < 2; index++) {
+    konstanta saved: apapun = values;
     results[index] = saved;
     values[0] = values[0] + 1;
   }
@@ -92,9 +92,9 @@ fungsi utama() {
     assert_program_result(run_source(source), "[[0], [1]][2]")
 
   def test_compiled_constant_snapshots_are_detached_and_protected(self):
-    source = """fungsi snapshot(value) { konstanta saved = value; hasilkan saved; }
-fungsi __pyindo_freeze_constant__() { hasilkan 22; }
-fungsi utama() { tampilkan(__pyindo_freeze_constant__()); }
+    source = """fungsi snapshot(value: apapun): apapun { konstanta saved: apapun = value; hasilkan saved; }
+fungsi __pyindo_freeze_constant__(): apapun { hasilkan 22; }
+fungsi utama(): apapun { tampilkan(__pyindo_freeze_constant__()); }
 """
     script = (
       "from pyindo.compiler import compile_source\n"
@@ -116,7 +116,7 @@ fungsi utama() { tampilkan(__pyindo_freeze_constant__()); }
     assert_program_result(run_source(source), "22")
 
   def test_snapshot_import_works_in_facade_and_marshal_round_trips(self):
-    source = "fungsi make() { konstanta saved = [[1]]; hasilkan saved; } fungsi utama() {}"
+    source = "fungsi make(): apapun { konstanta saved: apapun = [[1]]; hasilkan saved; } fungsi utama(): apapun {}"
     script = (
       "import marshal\n"
       "from pyindo.compiler import compile_source, compile_bytecodes\n"
@@ -136,9 +136,9 @@ fungsi utama() { tampilkan(__pyindo_freeze_constant__()); }
     assert_program_result(run_python(script), "")
 
   def test_repeated_constant_declarations_take_new_snapshots(self):
-    source = """fungsi utama() {
-  untuk (variabel index = 0; index < 2; index++) {
-    konstanta saved = [index];
+    source = """fungsi utama(): apapun {
+  untuk (variabel index: apapun = 0; index < 2; index++) {
+    konstanta saved: apapun = [index];
     tampilkan(saved);
   }
 }
@@ -307,19 +307,19 @@ fungsi utama() { tampilkan(__pyindo_freeze_constant__()); }
       _ = freeze_constant_value([]) * (10 ** 100)
 
   def test_source_built_deep_graphs_do_not_depend_on_python_recursion(self):
-    source = """fungsi graph(cyclic) {
-  variabel root = [0];
-  variabel cursor = root;
-  untuk (variabel depth = 0; depth < 1200; depth++) {
-    variabel child = [0];
+    source = """fungsi graph(cyclic: apapun): apapun {
+  variabel root: apapun = [0];
+  variabel cursor: apapun = root;
+  untuk (variabel depth: apapun = 0; depth < 1200; depth++) {
+    variabel child: apapun = [0];
     cursor[0] = child;
     cursor = child;
   }
   jika (cyclic) { cursor[0] = root; }
-  konstanta saved = root;
+  konstanta saved: apapun = root;
   hasilkan saved;
 }
-fungsi utama() {}
+fungsi utama(): apapun {}
 """
     script = (
       "from pyindo.compiler import compile_source\n"

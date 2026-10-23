@@ -4,6 +4,13 @@ from pyindo.diagnostics import SourceSpan
 
 
 @dataclass(frozen=True)
+class TypeAnnotation:
+  name: str
+  arguments: list["TypeAnnotation"]
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Literal:
   value: int | float | str | bool | None
   span: SourceSpan
@@ -81,6 +88,7 @@ class Declaration:
   value: Expression
   is_constant: bool
   span: SourceSpan
+  annotation: TypeAnnotation | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +174,7 @@ type Statement = (
 class Parameter:
   name: str
   span: SourceSpan
+  annotation: TypeAnnotation | None = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +184,7 @@ class Function:
   body: list[Statement]
   span: SourceSpan
   name_span: SourceSpan | None = None
+  return_annotation: TypeAnnotation | None = None
 
 
 @dataclass(frozen=True)

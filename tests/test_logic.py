@@ -7,11 +7,11 @@ from tests.fixture_runner import assert_program_result, run_python, run_source
 
 class LogicTests(unittest.TestCase):
   def test_logical_aliases_preserve_operands_and_identity(self):
-    source = """fungsi pilih_dan(a, b) { hasilkan a dan b; }
-fungsi pilih_atau(a, b) { hasilkan a atau b; }
-fungsi simbol_dan(a, b) { hasilkan a && b; }
-fungsi simbol_atau(a, b) { hasilkan a || b; }
-fungsi utama() { tampilkan(0 dan 7, 1 dan 7, "" atau "cadangan"); }
+    source = """fungsi pilih_dan(a: apapun, b: apapun): apapun { hasilkan a dan b; }
+fungsi pilih_atau(a: apapun, b: apapun): apapun { hasilkan a atau b; }
+fungsi simbol_dan(a: apapun, b: apapun): apapun { hasilkan a && b; }
+fungsi simbol_atau(a: apapun, b: apapun): apapun { hasilkan a || b; }
+fungsi utama(): apapun { tampilkan(0 dan 7, 1 dan 7, "" atau "cadangan"); }
 """
     script = (
       "from pyindo.compiler import compile_source\n"
@@ -61,9 +61,9 @@ fungsi utama() { tampilkan(0 dan 7, 1 dan 7, "" atau "cadangan"); }
       ])
 
     source = "\n".join(
-      f"fungsi probe_{index}(a, b, c) {{ {body} }}"
+      f"fungsi probe_{index}(a: apapun, b: apapun, c: apapun): apapun {{ {body} }}"
       for index, (body, _) in enumerate(cases)
-    ) + "\nfungsi utama() {}"
+    ) + "\nfungsi utama(): apapun {}"
     references = [reference for _, reference in cases]
     script = (
       "from itertools import product\n"
@@ -95,8 +95,8 @@ fungsi utama() { tampilkan(0 dan 7, 1 dan 7, "" atau "cadangan"); }
     assert_program_result(run_python(script), "")
 
   def test_rhs_effects_are_short_circuited(self):
-    source = """fungsi tandai() { tampilkan("R"); hasilkan 9; }
-fungsi utama() {
+    source = """fungsi tandai(): apapun { tampilkan("R"); hasilkan 9; }
+fungsi utama(): apapun {
   tampilkan(0 dan tandai(), "a" atau tandai());
   tampilkan(1 && tandai(), "" || tandai());
 }
@@ -105,10 +105,10 @@ fungsi utama() {
     assert_program_result(run_source(source), "0aRR99")
 
   def test_negation_returns_exact_booleans(self):
-    source = """fungsi negasi(value) { hasilkan tidak value; }
-fungsi simbol(value) { hasilkan !value; }
-fungsi kosong() {}
-fungsi utama() { tampilkan(tidak kosong(), !!benar, tidak 1 == 2); }
+    source = """fungsi negasi(value: apapun): apapun { hasilkan tidak value; }
+fungsi simbol(value: apapun): apapun { hasilkan !value; }
+fungsi kosong(): apapun {}
+fungsi utama(): apapun { tampilkan(tidak kosong(), !!benar, tidak 1 == 2); }
 """
     script = (
       "from pyindo.compiler import compile_source\n"
@@ -124,10 +124,10 @@ fungsi utama() { tampilkan(tidak kosong(), !!benar, tidak 1 == 2); }
     assert_program_result(run_source(source), "TrueTrueTrue")
 
   def test_precedence_comparisons_and_complete_word_aliases(self):
-    source = """fungsi utama() {
-  variabel dana = 7;
-  variabel ataupun = 8;
-  variabel tidak_sama = 9;
+    source = """fungsi utama(): apapun {
+  variabel dana: apapun = 7;
+  variabel ataupun: apapun = 8;
+  variabel tidak_sama: apapun = 9;
   tampilkan(benar atau salah dan salah, 1 < 2 dan 3 < 4, !1 == 2);
   tampilkan(dana, ataupun, tidak_sama, "${0 || 3 && 4}");
 }
@@ -138,13 +138,13 @@ fungsi utama() { tampilkan(tidak kosong(), !!benar, tidak 1 == 2); }
     for expression in ("1 < 2 < 3", "1 + tidak benar", "1 == !salah", "1 &&"):
       with self.subTest(expression=expression):
         with self.assertRaises(PyIndoError):
-          parse_module(f"fungsi utama() {{ hasilkan {expression}; }}")
+          parse_module(f"fungsi utama(): apapun {{ hasilkan {expression}; }}")
 
   def test_skipped_rhs_still_receives_static_validation(self):
     sources = [
-      "fungsi utama() { tampilkan(salah dan missing()); }",
-      "fungsi helper(value) {} fungsi utama() { tampilkan(benar atau helper()); }",
-      "fungsi utama() { tampilkan(benar atau value); variabel value = 1; }",
+      "fungsi utama(): apapun { tampilkan(salah dan missing()); }",
+      "fungsi helper(value: apapun): apapun {} fungsi utama(): apapun { tampilkan(benar atau helper()); }",
+      "fungsi utama(): apapun { tampilkan(benar atau value); variabel value: apapun = 1; }",
     ]
 
     for source in sources:
@@ -156,7 +156,7 @@ fungsi utama() { tampilkan(tidak kosong(), !!benar, tidak 1 == 2); }
         self.assertEqual(completed.stderr, "")
 
   def test_logical_interpolation_keeps_utf8_positions(self):
-    source = 'fungsi utama() { tampilkan("café ☕ ${0 atau 7}"); }'
+    source = 'fungsi utama(): apapun { tampilkan("café ☕ ${0 atau 7}"); }'
     expression = parse_module(source).functions[0].body[0].call.arguments[0].parts[1]
 
     self.assertEqual(source[expression.span.start:expression.span.end], "0 atau 7")

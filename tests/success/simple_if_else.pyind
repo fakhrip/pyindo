@@ -1,4 +1,4 @@
-fungsi utama() {
+fungsi utama(): kosong {
     jika (1 adalah 1) {
         tampilkan("satu adalah satu");
     } 

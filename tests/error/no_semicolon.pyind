@@ -1,3 +1,3 @@
-fungsi utama() {
+fungsi utama(): apapun {
     tampilkan("Test")
 }

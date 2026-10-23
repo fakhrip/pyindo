@@ -1,7 +1,7 @@
-fungsi 123tes() {
+fungsi 123tes(): apapun {
    // tidak ada apa apa 
 }
 
-fungsi utama() {
+fungsi utama(): apapun {
     // tidak ada apa apa juga
 }

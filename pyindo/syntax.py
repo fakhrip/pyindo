@@ -3,7 +3,7 @@ from dataclasses import replace
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, Function, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Parameter, Program, Return, TypeAnnotation, Unary, While,
@@ -412,6 +412,15 @@ class Parser:
       else:
         symbol = {"adalah": "==", "bukan": "!=", "didalam": "in"}.get(operator.text, operator.text)
         expression = Binary(symbol, expression, right, span)
+
+    if minimum_power <= 1 and self.match("jika"):
+      # Only the false arm associates right without explicit grouping.
+      condition = self.parse_expression(2)
+      self.expect("selainnya")
+      false_value = self.parse_expression(1)
+      expression = Conditional(
+        expression, condition, false_value, expression.span.through(false_value.span),
+      )
 
     return expression
 

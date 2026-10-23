@@ -46,6 +46,14 @@ class Logical:
 
 
 @dataclass(frozen=True)
+class Conditional:
+  true_value: "Expression"
+  condition: "Expression"
+  false_value: "Expression"
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class ListLiteral:
   items: list["Expression"]
   span: SourceSpan
@@ -78,7 +86,7 @@ class InterpolatedString:
 
 
 type Expression = (
-  Literal | Name | Unary | Binary | Logical | ListLiteral | Index | NonEmpty | Call | InterpolatedString
+  Literal | Name | Unary | Binary | Logical | Conditional | ListLiteral | Index | NonEmpty | Call | InterpolatedString
 )
 
 

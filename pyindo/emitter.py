@@ -6,7 +6,7 @@ from bytecode.instr import InstrLocation
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, SOURCE_NEWLINE_PATTERN, PyIndoError, SourceSpan
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
@@ -141,6 +141,18 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
       *emit_expression(expression.right, context), end_label,
     ]
 
+  if isinstance(expression, Conditional):
+    false_label, end_label = Label(), Label()
+    # The condition runs first; both selected-arm exits leave exactly one value.
+    return [
+      *emit_truth_jump(
+        expression.condition, context, when_true=False, target=false_label, preserve_value=False,
+      ),
+      *emit_expression(expression.true_value, context),
+      instruction("JUMP_FORWARD", end_label), false_label,
+      *emit_expression(expression.false_value, context), end_label,
+    ]
+
   if isinstance(expression, Binary):
     instructions = [
       *emit_expression(expression.left, context),
@@ -200,6 +212,23 @@ def emit_truth_jump(
     return emit_truth_jump(
       expression.operand, context, when_true=not when_true, target=target, preserve_value=False,
     )
+
+  if not preserve_value and isinstance(expression, Conditional):
+    false_label, end_label = Label(), Label()
+    # Consumed predicates reuse known truth in selected logical arms. Value-
+    # preserving contexts deliberately materialize and test the value again.
+    return [
+      *emit_truth_jump(
+        expression.condition, context, when_true=False, target=false_label, preserve_value=False,
+      ),
+      *emit_truth_jump(
+        expression.true_value, context, when_true=when_true, target=target, preserve_value=False,
+      ),
+      context.instruction("JUMP_FORWARD", end_label, span=expression.span), false_label,
+      *emit_truth_jump(
+        expression.false_value, context, when_true=when_true, target=target, preserve_value=False,
+      ), end_label,
+    ]
 
   if isinstance(expression, Logical):
     short_circuit_on_true = expression.operator == "or"

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Continue,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, Name, NonEmpty,
   Program, Return, Unary, While,
@@ -122,6 +122,11 @@ class FunctionAnalyzer:
       # Runtime laziness never hides invalid bindings or calls from analysis.
       self.expression(expression.left, initialized)
       self.expression(expression.right, initialized)
+    elif isinstance(expression, Conditional):
+      # Static diagnostics follow source order, including the unselected arm.
+      self.expression(expression.true_value, initialized)
+      self.expression(expression.condition, initialized)
+      self.expression(expression.false_value, initialized)
     elif isinstance(expression, Call):
       if expression.callee != "tampilkan":
         signature = self.signatures.get(expression.callee)

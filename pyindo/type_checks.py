@@ -1,4 +1,5 @@
 import operator
+import sys
 from collections.abc import Sequence
 from reprlib import recursive_repr
 
@@ -57,7 +58,10 @@ def _prepare(value, type_spec, context, path, completed):
       prepared = results[-count:] if count else []
       if count:
         del results[-count:]
-      result = _CheckedList(prepared, spec[1], context + current_path) if type(current) is list else current
+      result = (
+        _CheckedList(prepared, spec[1], context + current_path)
+        if type(current) is list else current
+      )
       completed[key] = result
       results.append(result)
     elif key in completed:
@@ -141,19 +145,20 @@ class _CheckedList(Sequence):
     """
 
     if isinstance(index, slice):
-      # Mark inserted slots so native slice validation runs exactly once.
+      # Native slicing converts step first, before either bounds or iteration.
+      step = None if index.step is None else operator.index(index.step)
+      if step == 0:
+        raise ValueError("slice step cannot be zero")
+      start = None if index.start is None else operator.index(index.start)
+      stop = None if index.stop is None else operator.index(index.stop)
+      normalized = slice(start, stop, step)
+      incoming = list(iter(value))
+
+      # Callbacks above may mutate this object. Snapshot their resulting state,
+      # then let native storage settle clipping and extended-slice size once.
       candidate = self._items.copy()
-      incoming = []
-      markers = []
-
-      def marked_values():
-        for item in value:
-          marker = object()
-          incoming.append(item)
-          markers.append(marker)
-          yield marker
-
-      candidate[index] = marked_values()
+      markers = [object() for _ in incoming]
+      candidate[normalized] = markers
       prepared = self._prepare_batch(incoming)
       replacements = {id(marker): item for marker, item in zip(markers, prepared)}
       self._items[:] = [replacements.get(id(item), item) for item in candidate]
@@ -173,6 +178,9 @@ class _CheckedList(Sequence):
 
   def insert(self, index, value):
     normalized = operator.index(index)
+    # Native insert rejects indices outside Py_ssize_t before inspecting values.
+    if normalized > sys.maxsize or normalized < -sys.maxsize - 1:
+      raise OverflowError("Python int too large to convert to C ssize_t")
     prepared = self._prepare_batch([value])[0]
     self._items.insert(normalized, prepared)
 

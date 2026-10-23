@@ -170,6 +170,13 @@ class TypeChecksTests(unittest.TestCase):
     self.assertEqual(trace, expected)
     self.assertEqual(values, native)
 
+  def test_insert_rejects_oversized_indices_before_values(self):
+    values = prepare_typed_value([1], INTS, CONTEXT)
+    for index in (10 ** 100, -(10 ** 100)):
+      with self.assertRaises(OverflowError):
+        values.insert(index, "bad")
+      self.assertEqual(values, [1])
+
   def test_typed_frozen_values_and_checked_snapshots(self):
     checked = prepare_typed_value([[1]], ROWS, CONTEXT)
     frozen = prepare_typed_constant(checked, ROWS, CONTEXT)
@@ -181,6 +188,69 @@ class TypeChecksTests(unittest.TestCase):
     for value in (object(), {}, (), [object()]):
       with self.assertRaisesRegex(TypeError, "Unsupported value"):
         prepare_typed_constant(value, "apapun", CONTEXT)
+
+  def test_slice_callbacks_keep_their_storage_side_effects(self):
+    def mutate(values, use_index):
+      class Index:
+        def __index__(self):
+          values.append(3)
+          return 0
+
+      class Incoming:
+        def __iter__(self):
+          values.append(4)
+          yield 9
+
+      values[slice(Index() if use_index else 0, 1)] = Incoming()
+      return list(values)
+
+    for use_index in (False, True):
+      with self.subTest(use_index=use_index):
+        self.assertEqual(
+          mutate(prepare_typed_value([1, 2], INTS, CONTEXT), use_index),
+          mutate([1, 2], use_index),
+        )
+
+    checked = prepare_typed_value([0, 1, 2], INTS, CONTEXT)
+
+    def incoming():
+      checked.extend([3, 4])
+      yield 9
+      yield 8
+
+    with self.assertRaises(ValueError):
+      checked[::2] = incoming()
+    self.assertEqual(checked, [0, 1, 2, 3, 4])
+
+  def test_slice_iterator_hints_follow_native_protocol(self):
+    def assign(values):
+      trace = []
+
+      class Iterator:
+        def __iter__(self):
+          trace.append("iterator.iter")
+          return self
+
+        def __length_hint__(self):
+          trace.append("iterator.hint")
+          return 0
+
+        def __next__(self):
+          trace.append("next")
+          raise StopIteration
+
+      class Incoming:
+        def __iter__(self):
+          trace.append("incoming.iter")
+          return Iterator()
+
+        def __len__(self):
+          raise AssertionError("slice must use the iterator's length hint")
+
+      values[:] = Incoming()
+      return trace
+
+    self.assertEqual(assign(prepare_typed_value([1], INTS, CONTEXT)), assign([1]))
 
   def test_any_cycles_and_shared_deep_graphs(self):
     checked = prepare_typed_value([0], ANY_ITEMS, CONTEXT)

@@ -67,51 +67,66 @@ class _FrozenList(Sequence):
     return self._compare(other, operator.ge)
 
   def __add__(self, other):
-    if not isinstance(other, (list, _FrozenList)):
+    if isinstance(other, _FrozenList):
+      other = list(other._items)
+    elif not isinstance(other, list):
       return NotImplemented
 
-    return list(self._items) + list(other)
+    # Native concatenation copies list storage, without invoking its iterator.
+    return list(self._items) + other
 
   def __radd__(self, other):
-    if not isinstance(other, (list, _FrozenList)):
+    if isinstance(other, _FrozenList):
+      other = list(other._items)
+    elif not isinstance(other, list):
       return NotImplemented
 
-    return list(other) + list(self._items)
+    return list.__add__(other, list(self._items))
 
   def __mul__(self, count):
     return list(self._items) * count
 
   def __rmul__(self, count):
-    return self * count
+    # The left operand already declined multiplication; do not reflect it again.
+    return list.__rmul__(list(self._items), count)
 
 
 def _freeze_value(value: object, completed: dict[int, _FrozenList], active: set[int]) -> object:
   """
-  Copy one supported value, distinguishing shared children from active cycles.
+  Visit a supported graph without depending on Python's call-stack limit.
+
+  Exit frames build parents only after their children. Active identities mark
+  the current path; completed identities reuse shared acyclic snapshots.
   """
 
-  if type(value) in (type(None), bool, int, float, complex, str, _FrozenList):
-    return value
+  pending = [(value, False)]
 
-  if type(value) is not list:
-    raise TypeError(f"Unsupported value in constant snapshot: {type(value).__name__}")
+  while pending:
+    current, children_ready = pending.pop()
 
-  identity = id(value)
+    if type(current) in (type(None), bool, int, float, complex, str, _FrozenList):
+      continue
 
-  if identity in active:
-    raise TypeError("Cannot freeze a cyclic collection")
+    if type(current) is not list:
+      raise TypeError(f"Unsupported value in constant snapshot: {type(current).__name__}")
 
-  if identity in completed:
-    return completed[identity]
+    identity = id(current)
 
-  active.add(identity)
+    if children_ready:
+      frozen_items = tuple(
+        completed[id(item)] if type(item) is list else item for item in current
+      )
+      completed[identity] = _FrozenList(frozen_items)
+      active.remove(identity)
+    elif identity in active:
+      raise TypeError("Cannot freeze a cyclic collection")
+    elif identity not in completed:
+      active.add(identity)
+      pending.append((current, True))
+      # Reverse the work stack to validate children in their original order.
+      pending.extend((item, False) for item in reversed(current))
 
-  try:
-    snapshot = _FrozenList(tuple(_freeze_value(item, completed, active) for item in value))
-    completed[identity] = snapshot
-    return snapshot
-  finally:
-    active.remove(identity)
+  return completed[id(value)] if type(value) is list else value
 
 
 def freeze_constant_value(value: object) -> object:

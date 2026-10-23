@@ -190,7 +190,10 @@ fungsi utama() { tampilkan(__pyindo_freeze_constant__()); }
     class MutableInteger(int):
       pass
 
-    for value in ({}, set(), (), object(), MutableInteger(1)):
+    class MutableList(list):
+      pass
+
+    for value in ({}, set(), (), object(), MutableInteger(1), MutableList([1])):
       with self.subTest(value=value):
         with self.assertRaises(TypeError):
           freeze_constant_value(value)
@@ -268,3 +271,116 @@ fungsi utama() { tampilkan(__pyindo_freeze_constant__()); }
     self.assertLess(freeze_constant_value([1j, 0]), [1j, 1])
     with self.assertRaises(TypeError):
       _ = freeze_constant_value([1j]) < [2j]
+
+  def test_snapshot_graph_state_is_local_and_handles_indirect_cycles(self):
+    shared = [1]
+    first = freeze_constant_value([[shared], [shared]])
+    self.assertIs(first[0][0], first[1][0])
+    shared[0] = 9
+    second = freeze_constant_value(shared)
+    self.assertEqual(first, [[[1]], [[1]]])
+    self.assertEqual(second, [9])
+
+    cyclic = [None]
+    cyclic[0] = [cyclic]
+    with self.assertRaisesRegex(TypeError, "Cannot freeze a cyclic collection"):
+      freeze_constant_value(cyclic)
+    invalid = [object()]
+    with self.assertRaises(TypeError):
+      freeze_constant_value(invalid)
+    invalid[0] = 2
+    self.assertEqual(freeze_constant_value(invalid), [2])
+
+  def test_repetition_uses_native_index_counts_and_keeps_nested_identity(self):
+    class Count:
+      def __index__(self):
+        return 2
+
+    snapshot = freeze_constant_value([[1]])
+    for result in (snapshot + [], [] + snapshot, snapshot * True, 1 * snapshot, snapshot * Count()):
+      with self.subTest(result=result):
+        self.assertIs(type(result), list)
+        self.assertIs(result[0], snapshot[0])
+        result.append(9)
+    self.assertEqual(False * snapshot, [])
+    with self.assertRaises(OverflowError):
+      _ = freeze_constant_value([]) * (10 ** 100)
+
+  def test_source_built_deep_graphs_do_not_depend_on_python_recursion(self):
+    source = """fungsi graph(cyclic) {
+  variabel root = [0];
+  variabel cursor = root;
+  untuk (variabel depth = 0; depth < 1200; depth++) {
+    variabel child = [0];
+    cursor[0] = child;
+    cursor = child;
+  }
+  jika (cyclic) { cursor[0] = root; }
+  konstanta saved = root;
+  hasilkan saved;
+}
+fungsi utama() {}
+"""
+    script = (
+      "from pyindo.compiler import compile_source\n"
+      "namespace = {'__name__': 'inspection'}\n"
+      f"exec(compile_source({source!r}), namespace)\n"
+      "cursor = namespace['graph'](False)\n"
+      "for depth in range(1200):\n"
+      "  cursor = cursor[0]\n"
+      "assert cursor[0] == 0\n"
+      "try:\n"
+      "  cursor[0] = 9\n"
+      "except TypeError:\n"
+      "  pass\n"
+      "else:\n"
+      "  raise AssertionError('deep child is mutable')\n"
+      "try:\n"
+      "  namespace['graph'](True)\n"
+      "except TypeError as error:\n"
+      "  assert str(error) == 'Cannot freeze a cyclic collection'\n"
+      "else:\n"
+      "  raise AssertionError('deep cycle accepted')\n"
+    )
+    assert_program_result(run_python(script), "")
+
+  def test_concatenation_preserves_native_list_subclass_storage(self):
+    events = []
+
+    class OddList(list):
+      def __iter__(self):
+        events.append("iteration")
+        return iter([99])
+
+    values = OddList([1])
+    snapshot = freeze_constant_value([0])
+
+    self.assertEqual(snapshot + values, [0] + values)
+    self.assertEqual(values + snapshot, values + [0])
+    self.assertEqual(events, [])
+
+  def test_reflected_repetition_uses_the_native_count_protocol(self):
+    events = []
+
+    class Count:
+      def __index__(self):
+        events.append("index")
+        return 2
+
+      def __mul__(self, other):
+        events.append("multiply")
+        return NotImplemented
+
+      def __rmul__(self, other):
+        events.append("reflect")
+        return "reflected"
+
+    snapshot = freeze_constant_value([1])
+    expected = Count() * [1]
+    expected_events = list(events)
+    events.clear()
+
+    self.assertEqual(Count() * snapshot, expected)
+    self.assertEqual(events, expected_events)
+    events.clear()
+    self.assertEqual(snapshot * Count(), [1] * Count())

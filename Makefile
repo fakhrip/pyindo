@@ -1,7 +1,9 @@
 .DEFAULT_GOAL := install
 
+PYTHON ?= python
+
 install:
-	pip3 install -r requirements.txt
+	$(PYTHON) -m pip install -r requirements.txt
 
 test:
-	python3 test.py
+	$(PYTHON) test.py

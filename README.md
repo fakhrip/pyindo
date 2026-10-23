@@ -4,24 +4,82 @@ This is a (python bytecode + indonesian language) based toy programming language
 
 ## How to use
 
-Run this command to install all dependencies for the whole things :  
-```bash
-make
-```  
+Use **CPython 3.15.x**. The reference runtime for this port is **3.15.1**,
+with **bytecode 0.19.1** pinned in `requirements.txt`. Other Python minor
+versions and implementations are rejected because their bytecode can differ.
 
-Run the compiler against a pyindo program inside a file like this:  
-(you can change `tests/hello_world.pyind` with any file you want to compile and run)
-```bash
-python3 main.py tests/hello_world.pyind
+From the repository root, create a local environment and install dependencies.
+The `.venv/` directory stays local and is ignored by Git.
+
+Windows (with Python 3.15 installed):
+
+```powershell
+py -3.15 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe main.py tests/success/hello_world.pyind
+.\.venv\Scripts\python.exe test.py
 ```
 
-Oh and please note that you need at least **python version `3.10`** to run and use this compiler and also the official extension for this language is `.pyind`.
+Linux or macOS:
+
+```bash
+python3.15 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py tests/success/hello_world.pyind
+.venv/bin/python test.py
+```
+
+With that environment active, the shorter commands are:
+
+```bash
+python main.py tests/success/hello_world.pyind
+python test.py
+```
+
+The official source extension is `.pyind`. `make` and `make test` are optional
+shortcuts; use `make PYTHON=.venv/bin/python` (or the Windows environment's
+Python path) to select the intended interpreter explicitly.
+
+Options go after the input path:
+
+- `-D` runs the program and writes readable disassembly to a sibling `.dis`
+  file, including helper functions. This is text, not an executable `.pyc`.
+- `-O` is retained for compatibility and currently does nothing. It does not
+  change code-object scope flags or enable a language optimizer.
+
+Successful runs exit 0. Usage or unsupported-runtime errors exit 64, unreadable
+inputs exit 66, and compiler/syntax errors exit 70.
 
 If you are curious as to how this works, please go to [how it works](#how-it-works) section.
 
 ## Examples
 
 You can find all program examples of pyindo language in the [`tests/`](./tests/) directory
+
+## Current implementation status
+
+The CPython 3.15 port restores the existing implemented language first. The
+larger v1 example below is a roadmap, not a program that currently runs.
+
+| Available and tested | Still planned or incomplete |
+| --- | --- |
+| `utama` entrypoint and no-argument helper functions | Variables, reassignment, constants, and proper local scopes |
+| Sequential helper calls and continued execution afterward | Function parameters, call expressions, and real `hasilkan` return semantics |
+| Literal printing, escapes, and `${expression}` interpolation | General string/expression parsing, including punctuation in strings and decimal literals |
+| Existing binary-operation helpers and literal arithmetic/comparisons | Correct precedence/associativity and unary-operator parsing in all cases |
+| Existing braced `jika` / `selainnya jika` / `selainnya` chains | Nested conditions and `maka` shorthand |
+| Existing comment and flexible-whitespace examples | Boolean short-circuiting, loops, collections, deletion, and type checking |
+
+`python test.py` uses standard-library `unittest`. It fails on mismatched output,
+unexpected exit status/stderr, orphaned fixtures, or a subprocess timeout.
+Expected output retains significant whitespace.
+
+All 19 original fixtures are accounted for: ten implemented success examples,
+eight expected syntax errors, and one specifically asserted implementation gap.
+`simple_math.pyind` currently fails on its variable declaration; its recorded
+output also disagrees with the source's message and true division. It must be
+reconciled when variables are implemented. The existing `return_value` example
+checks printed output only and does not prove that `hasilkan` works.
 
 ## Language specificaton
 
@@ -32,7 +90,8 @@ fungsi utama() {
 }
 ```
 
-There are several features that are available and will be available (already plan to develop) for this language, which expressed in this one example as a full test throughout all features:  
+The following example combines existing syntax with planned features and is
+the intended v1 acceptance goal. See the status table above before trying it:
 ```pyindo
 fungsi jumlah(angka1: desimal, angka2: desimal): desimal {
     hasilkan angka1 + angka2;
@@ -104,14 +163,14 @@ tidak == not || !
 
 Also note that we introduced new keyword in this language that are unique just to this language such as `maka`, so in order for you to understand the whole language syntax, you can see some of examples exist inside the [`tests/`](./tests/) directory.
 
-### Ternary Operator
+### Planned conditional expressions
 
 There are no ternary operator in this language, and instead, we follow the pythonic syntax for this one which is to create one line if statement like this:  
 ```pyindo
 tampilkan("apakah 1 sama dengan 1 ? ${'ya' jika 1 adalah 1 selainnya 'tidak'}")
 ```
 
-### Syntatic Sugar
+### Planned syntactic sugar
 
 There are some of syntatic sugar which one can use to be able to use this language in a more comfortable way such as:
 

@@ -9,6 +9,8 @@ EX_USAGE = 64
 EX_NOINPUT = 66
 EX_SOFTWARE = 70
 _USER_ARGUMENTS: ContextVar[tuple[str, ...]] = ContextVar("pyindo_user_arguments", default=())
+_UNINITIALIZED_MODULE_VALUE = object()
+MODULE_VALUE_NAMES = "<pyindo:module_value_names>"
 
 
 def ensure_supported_runtime() -> None:
@@ -87,6 +89,19 @@ def entrypoint_exit_status(result: object) -> int:
   return result
 
 
+def read_module_value(value: object, name: str) -> object:
+  """
+  Reject an owned slot until its declaration has successfully published a value.
+
+  Slots are seeded on each execution so Python builtins and a reused host
+  namespace cannot accidentally satisfy an indirect early initializer read.
+  """
+
+  if value is _UNINITIALIZED_MODULE_VALUE:
+    raise NameError(f"Module binding '{name}' is not initialized")
+  return value
+
+
 def module_export(module: ModuleType, name: str) -> object:
   """
   Read an owned export without invoking ModuleType's attribute special cases.
@@ -95,7 +110,7 @@ def module_export(module: ModuleType, name: str) -> object:
   function named __dict__ as the namespace mapping after repeated execution.
   """
 
-  return object.__getattribute__(module, "__dict__")[name]
+  return read_module_value(object.__getattribute__(module, "__dict__")[name], name)
 
 
 def _module_bindings(modules: list[ModuleType], bindings: tuple) -> dict[str, object]:

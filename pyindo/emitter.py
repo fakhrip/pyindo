@@ -8,10 +8,11 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, SOURCE_NEWLINE_PATTERN,
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
-  ListLiteral, Literal, Logical, Name, NonEmpty,
+  ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
   Program, Return, Unary, While,
 )
-from pyindo.resolver import FunctionScope, FunctionSignature, ProgramSymbols, analyze_program
+from pyindo.resolver import FunctionScope, FunctionSignature, ProgramSymbols, ValueBinding, analyze_program
+from pyindo.runtime import MODULE_VALUE_NAMES
 from pyindo.types import TypeSpec
 
 
@@ -22,6 +23,8 @@ ENTRYPOINT_RESULT_NAME = "<pyindo:entrypoint_result>"
 LOAD_MODULE_IMPORTS_NAME = "<pyindo:load_module_imports>"
 IMPORT_BINDINGS_NAME = "<pyindo:import_bindings>"
 MODULE_EXPORT_NAME = "<pyindo:module_export>"
+READ_MODULE_VALUE_NAME = "<pyindo:read_module_value>"
+UNINITIALIZED_MODULE_VALUE_NAME = "<pyindo:module_uninitialized>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -50,6 +53,8 @@ class EmissionContext:
   filename: str
   source_lines: list[str] = field(init=False)
   loop_targets: list[LoopTargets] = field(default_factory=list)
+  module_values: dict[str, ValueBinding] = field(default_factory=dict)
+  imported_values: dict[str, ValueBinding] = field(default_factory=dict)
 
   def __post_init__(self):
     self.source_lines = SOURCE_NEWLINE_PATTERN.split(self.source_text)
@@ -83,7 +88,17 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
     return [instruction("LOAD_CONST", expression.value)]
 
   if isinstance(expression, Name):
+    if expression.identifier in context.module_values or expression.identifier in context.imported_values:
+      return emit_module_read(expression.identifier, context, expression.span)
     return [instruction("LOAD_FAST_CHECK", expression.identifier)]
+
+  if isinstance(expression, ModuleMember):
+    return [
+      instruction("LOAD_GLOBAL", (True, MODULE_EXPORT_NAME)),
+      instruction("LOAD_GLOBAL", (False, expression.namespace)),
+      instruction("LOAD_CONST", expression.member),
+      instruction("CALL", 2),
+    ]
 
   if isinstance(expression, ListLiteral):
     instructions = []
@@ -316,6 +331,22 @@ def emit_type_guard(
   ]
 
 
+def emit_module_read(name: str, context: EmissionContext, span: SourceSpan) -> list[Instr | Label]:
+  """
+  Resolve a declared module value once, guarding its publication boundary.
+
+  The seeded global always exists, preventing fallback to Python builtins.
+  Imported references use the same guard boundary when live imports are wired.
+  """
+
+  return [
+    context.instruction("LOAD_GLOBAL", (True, READ_MODULE_VALUE_NAME), span=span),
+    context.instruction("LOAD_GLOBAL", (False, name), span=span),
+    context.instruction("LOAD_CONST", name, span=span),
+    context.instruction("CALL", 2, span=span),
+  ]
+
+
 def _contract_context(kind: str, name: str, context: EmissionContext, span: SourceSpan) -> str:
   """
   Retain the source boundary in errors, including later mutations through aliases.
@@ -332,14 +363,21 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
   if isinstance(statement, (Declaration, Assignment)):
     name = statement.name if isinstance(statement, Declaration) else statement.target
     is_constant = isinstance(statement, Declaration) and statement.is_constant
+    binding = context.module_values.get(name)
+    instructions = []
+    if binding is not None and isinstance(statement, Assignment):
+      # A function cannot publish a later declaration by rebinding it early.
+      instructions.extend(emit_module_read(name, context, statement.span))
+      instructions.append(context.instruction("POP_TOP", span=statement.span, has_argument=False))
     prepared = emit_type_guard(
-      emit_expression(statement.value, context), context.scope.binding_types.get(name, "apapun"),
+      emit_expression(statement.value, context),
+      binding.type_spec if binding is not None else context.scope.binding_types.get(name, "apapun"),
       _contract_context("binding", name, context, statement.span), context, statement.span,
       is_constant=is_constant,
     )
     return [
-      *prepared,
-      context.instruction("STORE_FAST", name, span=statement.span),
+      *instructions, *prepared,
+      context.instruction("STORE_GLOBAL" if binding is not None else "STORE_FAST", name, span=statement.span),
     ]
 
   if isinstance(statement, (IndexedAssignment, Delete)):
@@ -360,17 +398,21 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
 
   if isinstance(statement, AugmentedAssignment):
     # Read before the RHS and rebind; postfix syntax leaves no old/new value.
+    binding = context.module_values.get(statement.target)
     computed = [
-      context.instruction("LOAD_FAST_CHECK", statement.target, span=statement.span),
+      *(
+        emit_module_read(statement.target, context, statement.span) if binding is not None else
+        [context.instruction("LOAD_FAST_CHECK", statement.target, span=statement.span)]
+      ),
       *emit_expression(statement.value, context),
       context.instruction("BINARY_OP", BINARY_OPERATIONS[statement.operator], span=statement.span),
     ]
     return [
       *emit_type_guard(
-        computed, context.scope.binding_types.get(statement.target, "apapun"),
+        computed, binding.type_spec if binding is not None else context.scope.binding_types.get(statement.target, "apapun"),
         _contract_context("binding", statement.target, context, statement.span), context, statement.span,
       ),
-      context.instruction("STORE_FAST", statement.target, span=statement.span),
+      context.instruction("STORE_GLOBAL" if binding is not None else "STORE_FAST", statement.target, span=statement.span),
     ]
 
   if isinstance(statement, (Break, Continue)):
@@ -533,12 +575,18 @@ def emit_loop_body(body, context: EmissionContext, targets: LoopTargets) -> list
   return instructions
 
 
-def compile_function(function, scope, *, signatures, source_text, filename) -> CodeType:
+def compile_function(
+  function, scope, *, signatures, source_text, filename,
+  module_values=None, imported_values=None,
+) -> CodeType:
   """
   Assemble an optimized function frame with deterministic locals and metadata.
   """
 
-  context = EmissionContext(scope, signatures, source_text, filename)
+  context = EmissionContext(
+    scope, signatures, source_text, filename,
+    module_values=module_values or {}, imported_values=imported_values or {},
+  )
   instructions = [Instr("RESUME", 0, lineno=function.span.line)]
 
   # All caller arguments already exist before the first parameter is checked.
@@ -577,7 +625,10 @@ def compile_program(
   is_library: bool = False, module_bundle: tuple = (), import_bindings: tuple = (),
 ) -> Bytecode:
   """
-  Define one module, optionally wiring a bundled graph before the root entrypoint.
+  Define functions, publish ordered module state, then invoke the root entrypoint.
+
+  Seeding owned globals precedes dependency initialization so re-execution never
+  exposes an old value. Imports and functions are available to all initializers.
   """
 
   if symbols is None:
@@ -594,12 +645,18 @@ def compile_program(
     ("pyindo.type_checks", "prepare_typed_value", PREPARE_VALUE_NAME),
     ("pyindo.runtime", "invoke_entrypoint", INVOKE_ENTRYPOINT_NAME),
   ]
-  if any(scope.constant_names for scope in symbols.scopes.values()):
+  if any(scope.constant_names for scope in symbols.scopes.values()) or any(
+    binding.is_constant for binding in symbols.module_values.values()
+  ):
     helpers.append(("pyindo.type_checks", "prepare_typed_constant", PREPARE_CONSTANT_NAME))
   if import_bindings:
     helpers.append(("pyindo.runtime", "load_module_imports", LOAD_MODULE_IMPORTS_NAME))
-  if any("." in name for name in symbols.signatures):
+  if any("." in name for name in symbols.signatures) or any("." in name for name in symbols.imported_values):
     helpers.append(("pyindo.runtime", "module_export", MODULE_EXPORT_NAME))
+  if symbols.module_values or symbols.imported_values:
+    helpers.append(("pyindo.runtime", "read_module_value", READ_MODULE_VALUE_NAME))
+  if symbols.module_values:
+    helpers.append(("pyindo.runtime", "_UNINITIALIZED_MODULE_VALUE", UNINITIALIZED_MODULE_VALUE_NAME))
 
   for module_name, helper_name, global_name in helpers:
     # An impossible source identifier avoids collisions and caller-side injection.
@@ -610,6 +667,16 @@ def compile_program(
       Instr("IMPORT_FROM", helper_name, lineno=1),
       Instr("STORE_NAME", global_name, lineno=1),
       Instr("POP_TOP", lineno=1),
+    ])
+
+  # Private metadata classifies named value imports without changing bundle
+  # triples. Real values/markers are created at execution, never in co_consts.
+  instructions.extend([
+    Instr("LOAD_CONST", tuple(symbols.module_values)), Instr("STORE_NAME", MODULE_VALUE_NAMES),
+  ])
+  for name in symbols.module_values:
+    instructions.extend([
+      Instr("LOAD_NAME", UNINITIALIZED_MODULE_VALUE_NAME), Instr("STORE_NAME", name),
     ])
 
   if import_bindings:
@@ -631,6 +698,7 @@ def compile_program(
       function_code = compile_function(
         function, symbols.scopes[function.name], signatures=symbols.signatures,
         source_text=program.source_text, filename=filename,
+        module_values=symbols.module_values, imported_values=symbols.imported_values,
       )
     except RecursionError as complexity_error:
       raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, function.span) from complexity_error
@@ -638,6 +706,16 @@ def compile_program(
       Instr("LOAD_CONST", function_code, lineno=function.span.line),
       Instr("MAKE_FUNCTION"), Instr("STORE_NAME", function.name),
     ])
+
+  initializer_context = EmissionContext(
+    FunctionScope("<module>", [], [], set()), symbols.signatures, program.source_text, filename,
+    module_values=symbols.module_values, imported_values=symbols.imported_values,
+  )
+  for declaration in program.declarations:
+    try:
+      instructions.extend(emit_statement(declaration, initializer_context))
+    except RecursionError as complexity_error:
+      raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, declaration.span) from complexity_error
 
   if not is_library:
     module_exit = Label()

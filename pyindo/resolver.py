@@ -113,6 +113,14 @@ class FunctionAnalyzer:
     self.imported_values = imported_values or {}
 
   def require_initialized(self, name: str, span: SourceSpan, initialized: set[str]):
+    """
+    Resolve value names without treating a known module slot as an early value.
+
+    Imported dependencies are ready before this module initializes. Owned slots
+    must appear in the current path state; functions get the complete table and
+    rely on runtime guards when invoked by an earlier initializer.
+    """
+
     if name in self.imported_values:
       return
 
@@ -355,7 +363,7 @@ def _analyze_program(
   imported_values: dict[str, ValueBinding] | None = None,
 ) -> ProgramSymbols:
   """
-  Register all functions, collect locals, then validate calls and live paths.
+  Register functions/owned values, check initializers, then validate local paths.
   """
 
   signatures = dict(imported_signatures or {})

@@ -7,14 +7,14 @@ from bytecode import Bytecode
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError
 from pyindo.emitter import compile_program
 from pyindo.nodes import Import, Program
-from pyindo.resolver import RESERVED_FUNCTION_NAMES, FunctionSignature, analyze_program
+from pyindo.resolver import RESERVED_FUNCTION_NAMES, FunctionSignature, ValueBinding, analyze_program
 from pyindo.syntax import parse_module
 
 
 @dataclass(frozen=True)
 class CompiledModule:
   index: int
-  exports: dict[str, FunctionSignature]
+  exports: dict[str, FunctionSignature | ValueBinding]
 
 
 class ModuleGraph:
@@ -73,14 +73,17 @@ class ModuleGraph:
 
   def build(self, program: Program, filename: str, *, is_library: bool):
     """
-    Resolve imported signatures before checking local bodies and emitting code.
+    Classify owned exports before checking calls, live value reads and bindings.
     """
 
     signatures = {}
+    imported_values = {}
     namespaces = set()
     aliases = set()
     bindings = []
-    local_names = {function.name for function in program.functions}
+    local_names = {function.name for function in program.functions} | {
+      declaration.name for declaration in program.declarations
+    }
 
     def claim(alias, span):
       """
@@ -98,21 +101,26 @@ class ModuleGraph:
         claim(alias, declaration.span)
         namespaces.add(alias)
         bindings.append((alias, dependency.index, None))
-        signatures.update({f"{alias}.{name}": signature for name, signature in dependency.exports.items()})
+        for name, exported in dependency.exports.items():
+          target = imported_values if isinstance(exported, ValueBinding) else signatures
+          target[f"{alias}.{name}"] = exported
       else:
         for binding in declaration.bindings:
           claim(binding.alias, binding.span)
           if binding.name not in dependency.exports:
             raise PyIndoError(
-              f"Module {declaration.path!r} does not export function {binding.name!r}",
+              f"Module {declaration.path!r} does not export {binding.name!r}",
               binding.span, filename=filename,
             )
-          signatures[binding.alias] = dependency.exports[binding.name]
+          exported = dependency.exports[binding.name]
+          target = imported_values if isinstance(exported, ValueBinding) else signatures
+          target[binding.alias] = exported
           bindings.append((binding.alias, dependency.index, binding.name))
 
     symbols = analyze_program(
       program, imported_signatures=signatures, namespace_names=namespaces,
       require_entrypoint=not is_library,
+      imported_values=imported_values,
     )
     bytecode = compile_program(
       program, filename=filename, symbols=symbols, is_library=is_library,
@@ -120,6 +128,7 @@ class ModuleGraph:
       import_bindings=tuple(bindings) if not is_library else (),
     )
     exports = {function.name: symbols.signatures[function.name] for function in program.functions}
+    exports.update(symbols.module_values)
     return bytecode, exports, tuple(bindings)
 
 

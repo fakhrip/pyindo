@@ -2,6 +2,7 @@ import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from types import ModuleType
 
 
@@ -11,6 +12,12 @@ EX_SOFTWARE = 70
 _USER_ARGUMENTS: ContextVar[tuple[str, ...]] = ContextVar("pyindo_user_arguments", default=())
 _UNINITIALIZED_MODULE_VALUE = object()
 MODULE_VALUE_NAMES = "<pyindo:module_value_names>"
+
+
+@dataclass(frozen=True)
+class _ModuleValueReference:
+  owner: ModuleType
+  name: str
 
 
 def ensure_supported_runtime() -> None:
@@ -91,7 +98,7 @@ def entrypoint_exit_status(result: object) -> int:
 
 def read_module_value(value: object, name: str) -> object:
   """
-  Reject an owned slot until its declaration has successfully published a value.
+  Resolve a live import or reject an owned slot until its declaration publishes.
 
   Slots are seeded on each execution so Python builtins and a reused host
   namespace cannot accidentally satisfy an indirect early initializer read.
@@ -99,6 +106,8 @@ def read_module_value(value: object, name: str) -> object:
 
   if value is _UNINITIALIZED_MODULE_VALUE:
     raise NameError(f"Module binding '{name}' is not initialized")
+  if type(value) is _ModuleValueReference:
+    return module_export(value.owner, value.name)
   return value
 
 
@@ -115,21 +124,32 @@ def module_export(module: ModuleType, name: str) -> object:
 
 def _module_bindings(modules: list[ModuleType], bindings: tuple) -> dict[str, object]:
   """
-  Bind an exported function or namespace from an already initialized dependency.
+  Bind functions/namespaces directly and values through live owner references.
+
+  Private metadata distinguishes a value from a function even under apapun.
+  Resolving only on source reads preserves owner rebindings without copying or
+  caching a scalar/list, while ordinary aliases still retain their old objects.
   """
 
-  return {
-    alias: modules[index] if name is None else module_export(modules[index], name)
-    for alias, index, name in bindings
-  }
+  result = {}
+  for alias, index, name in bindings:
+    owner = modules[index]
+    namespace = object.__getattribute__(owner, "__dict__")
+    if name is None:
+      result[alias] = owner
+    elif name in namespace.get(MODULE_VALUE_NAMES, ()):
+      result[alias] = _ModuleValueReference(owner, name)
+    else:
+      result[alias] = module_export(owner, name)
+  return result
 
 
 def load_module_imports(bundle: tuple, bindings: tuple) -> dict[str, object]:
   """
   Instantiate one isolated module graph for this execution, without a global cache.
 
-  Dependencies precede importers. Library code only defines functions, so all
-  bindings exist before any PyIndo entrypoint or ordinary function can execute.
+  Dependencies initialize before importers. Their functions and ordered typed
+  declarations finish before any importer initializer or entrypoint executes.
   """
 
   modules = []

@@ -5,7 +5,7 @@ from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
-  Program, Return, Unary, While,
+  Program, Return, Switch, Unary, While,
 )
 from pyindo.types import TypeSpec, allows_none, resolve_type
 
@@ -67,6 +67,27 @@ def _meet_exit_states(current: set[str] | None, incoming: set[str] | None) -> se
   return set(current) if incoming is None else current & incoming
 
 
+def _join_branches(branches: list[FlowResult], initialized: set[str]) -> FlowResult:
+  """
+  Join continuing paths and independently intersect real loop-control exits.
+
+  Returning arms do not dilute continuing initialization. Empty exit states
+  still represent live paths; only None means that exit was absent.
+  """
+
+  normal_states = [branch.initialized for branch in branches if branch.falls_through]
+  result = FlowResult(
+    set.intersection(*normal_states) if normal_states else set(initialized),
+    bool(normal_states),
+  )
+
+  for branch in branches:
+    result.breaks = _meet_exit_states(result.breaks, branch.breaks)
+    result.continues = _meet_exit_states(result.continues, branch.continues)
+
+  return result
+
+
 def _declarations(body):
   """
   Walk source bindings once, including loop headers, in function-local order.
@@ -78,6 +99,12 @@ def _declarations(body):
     elif isinstance(statement, If):
       for _, branch_body in statement.branches:
         yield from _declarations(branch_body)
+
+      if statement.else_body is not None:
+        yield from _declarations(statement.else_body)
+    elif isinstance(statement, Switch):
+      for case in statement.cases:
+        yield from _declarations(case.body)
 
       if statement.else_body is not None:
         yield from _declarations(statement.else_body)
@@ -274,6 +301,8 @@ class FunctionAnalyzer:
       )
     elif isinstance(statement, If):
       return self.analyze_if(statement, initialized, loop_depth=loop_depth)
+    elif isinstance(statement, Switch):
+      return self.analyze_switch(statement, initialized, loop_depth=loop_depth)
     elif isinstance(statement, While):
       self.expression(statement.condition, initialized)
       self.block(statement.body, initialized, loop_depth=loop_depth + 1)
@@ -306,17 +335,28 @@ class FunctionAnalyzer:
       FlowResult(set(initialized), True) if statement.else_body is None
       else self.block(statement.else_body, initialized, loop_depth=loop_depth)
     )
-    normal_states = [branch.initialized for branch in branches if branch.falls_through]
-    result = FlowResult(
-      set.intersection(*normal_states) if normal_states else set(initialized),
-      bool(normal_states),
+    return _join_branches(branches, initialized)
+
+  def analyze_switch(self, statement: Switch, initialized: set[str], *, loop_depth: int) -> FlowResult:
+    """
+    Check all cases against incoming state without creating a new control target.
+
+    Runtime laziness cannot hide invalid reads or stores. Only an explicit
+    fallback removes the unmatched path, including when that fallback is empty.
+    """
+
+    self.expression(statement.subject, initialized)
+    branches = []
+    for case in statement.cases:
+      for value in case.values:
+        self.expression(value, initialized)
+      branches.append(self.block(case.body, initialized, loop_depth=loop_depth))
+
+    branches.append(
+      FlowResult(set(initialized), True) if statement.else_body is None
+      else self.block(statement.else_body, initialized, loop_depth=loop_depth)
     )
-
-    for branch in branches:
-      result.breaks = _meet_exit_states(result.breaks, branch.breaks)
-      result.continues = _meet_exit_states(result.continues, branch.continues)
-
-    return result
+    return _join_branches(branches, initialized)
 
   def analyze_for(self, statement: For, initialized: set[str], *, loop_depth: int) -> FlowResult:
     """

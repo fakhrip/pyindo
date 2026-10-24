@@ -154,6 +154,21 @@ class If:
 
 
 @dataclass(frozen=True)
+class SwitchCase:
+  values: list[Expression]
+  body: list["Statement"]
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
+class Switch:
+  subject: Expression
+  cases: list[SwitchCase]
+  else_body: list["Statement"] | None
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class While:
   condition: Expression
   body: list["Statement"]
@@ -192,7 +207,7 @@ class Continue:
 
 type Statement = (
   Declaration | Assignment | AugmentedAssignment | IndexedAssignment | Delete | Return | CallStatement
-  | If | While | For | ForEach | Break | Continue
+  | If | Switch | While | For | ForEach | Break | Continue
 )
 
 

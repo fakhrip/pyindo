@@ -7,7 +7,7 @@ from pyindo.nodes import (
   Declaration, Delete, For, ForEach, Function, If, Import, ImportBinding, Index,
   IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
-  Parameter, Program, Return, TypeAnnotation, Unary, While,
+  Parameter, Program, Return, Switch, SwitchCase, TypeAnnotation, Unary, While,
 )
 
 
@@ -22,7 +22,6 @@ BINDING_POWER = {
   "**": (70, 60),
 }
 UNSUPPORTED = {
-  "cocokkan",
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "<<=", ">>=", "++", "--",
 }
 
@@ -216,6 +215,9 @@ class Parser:
     if opening.text == "jika":
       return self.parse_if()
 
+    if opening.text == "cocokkan":
+      return self.parse_switch()
+
     if opening.text == "selama":
       return self.parse_while()
 
@@ -334,11 +336,44 @@ class Parser:
 
     self.expect("maka")
 
-    if self.current.text in ("jika", "selama", "untuk", "{"):
+    if self.current.text in ("jika", "cocokkan", "selama", "untuk", "{"):
       raise self.expected("simple statement after 'maka'")
 
     statement = self.parse_statement()
     return [statement], statement.span
+
+  def parse_switch(self) -> Switch:
+    """
+    Parse ordered expression cases with contextual markers and owned braces.
+
+    Ordinary expression parsing owns conditional-expression selainnya tokens;
+    only a completed case body can be followed by the final fallback arm.
+    """
+
+    opening = self.expect("cocokkan")
+    self.expect("(")
+    subject = self.parse_expression()
+    self.expect(")")
+    self.expect("{")
+    cases = []
+
+    while self.current.text == "kasus":
+      case_opening = self.advance()
+      values = [self.parse_expression()]
+      while self.match(","):
+        values.append(self.parse_expression())
+      body, closing = self.parse_block()
+      cases.append(SwitchCase(values, body, case_opening.span.through(closing.span)))
+
+    if not cases:
+      raise self.expected("at least one 'kasus' arm")
+
+    else_body = None
+    if self.match("selainnya"):
+      else_body, _ = self.parse_block()
+
+    closing = self.expect("}")
+    return Switch(subject, cases, else_body, opening.span.through(closing.span))
 
   def parse_while(self) -> While:
     """

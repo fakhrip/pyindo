@@ -94,10 +94,18 @@ class NonEmpty:
 
 
 @dataclass(frozen=True)
+class KeywordArgument:
+  name: str
+  value: "Expression"
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Call:
   callee: str
   arguments: list["Expression"]
   span: SourceSpan
+  keywords: list[KeywordArgument] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

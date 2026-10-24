@@ -158,6 +158,54 @@ def emit_comparison_chain_truth_jump(
   return instructions
 
 
+def emit_call(call: Call, context: EmissionContext) -> list[Instr | Label]:
+  """
+  Emit native argument binding while evaluating all supplied values in written order.
+
+  Callable, NULL, positional values, named values and their name tuple sit above
+  any caller prefix. CALL/CALL_KW consume them and leave exactly one result.
+  """
+
+  def instruction(name, argument=None, *, has_argument=True):
+    return context.instruction(name, argument, span=call.span, has_argument=has_argument)
+
+  callee = "print" if call.callee == "tampilkan" else call.callee
+  if "." in callee:
+    namespace, member = callee.split(".")
+    # Preserve declared-export lookup, including descriptor-named functions.
+    instructions = [
+      instruction("LOAD_GLOBAL", (True, MODULE_EXPORT_NAME)),
+      instruction("LOAD_GLOBAL", (False, namespace)),
+      instruction("LOAD_CONST", member), instruction("CALL", 2),
+      instruction("PUSH_NULL", has_argument=False),
+    ]
+  else:
+    instructions = [instruction("LOAD_GLOBAL", (True, callee))]
+
+  for argument in call.arguments:
+    instructions.extend(emit_expression(argument, context))
+    if call.callee == "tampilkan":
+      instructions.append(instruction("FORMAT_SIMPLE", has_argument=False))
+
+  if call.callee == "tampilkan":
+    # Printing keeps its internal end option and positional-only source contract.
+    instructions.extend([
+      instruction("BUILD_STRING", len(call.arguments)), instruction("LOAD_CONST", ""),
+      instruction("LOAD_CONST", ("end",)), instruction("CALL_KW", 2),
+    ])
+  elif call.keywords:
+    for keyword in call.keywords:
+      instructions.extend(emit_expression(keyword.value, context))
+    instructions.extend([
+      instruction("LOAD_CONST", tuple(keyword.name for keyword in call.keywords)),
+      instruction("CALL_KW", len(call.arguments) + len(call.keywords)),
+    ])
+  else:
+    instructions.append(instruction("CALL", len(call.arguments)))
+
+  return instructions
+
+
 def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]:
   """
   Emit an expression with exactly one result and no discarded intermediate values.
@@ -273,39 +321,7 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
     return instructions
 
   if isinstance(expression, Call):
-    callee = "print" if expression.callee == "tampilkan" else expression.callee
-    # CPython 3.15 needs callable, NULL, then arguments in evaluation order.
-    if "." in callee:
-      namespace, member = callee.split(".")
-      # Resolve declared exports without ModuleType descriptor/specialization traps.
-      instructions = [
-        instruction("LOAD_GLOBAL", (True, MODULE_EXPORT_NAME)),
-        instruction("LOAD_GLOBAL", (False, namespace)),
-        instruction("LOAD_CONST", member),
-        instruction("CALL", 2),
-        instruction("PUSH_NULL", has_argument=False),
-      ]
-    else:
-      instructions = [instruction("LOAD_GLOBAL", (True, callee))]
-
-    for argument in expression.arguments:
-      instructions.extend(emit_expression(argument, context))
-
-      if expression.callee == "tampilkan":
-        instructions.append(instruction("FORMAT_SIMPLE", has_argument=False))
-
-    if expression.callee == "tampilkan":
-      # Printing is an expression too: leave its None result for the caller.
-      instructions.extend([
-        instruction("BUILD_STRING", len(expression.arguments)),
-        instruction("LOAD_CONST", ""),
-        instruction("LOAD_CONST", ("end",)),
-        instruction("CALL_KW", 2),
-      ])
-    else:
-      instructions.append(instruction("CALL", len(expression.arguments)))
-
-    return instructions
+    return emit_call(expression, context)
 
   raise TypeError(f"Unknown expression node: {type(expression).__name__}")
 

@@ -120,6 +120,39 @@ def _declarations(body):
       yield from _declarations(statement.body)
 
 
+def validate_call_arguments(call: Call, signature: FunctionSignature) -> None:
+  """
+  Check declared slots without evaluating values or reordering named arguments.
+
+  Keep established diagnostics for ordinary all-positional calls. Keyword labels
+  bind to the owner's parameter names even when the function was imported by alias.
+  """
+
+  positional_count = len(call.arguments)
+  if not call.keywords:
+    if positional_count != len(signature.parameters):
+      raise PyIndoError(
+        f"Function '{call.callee}' expects {len(signature.parameters)} arguments, "
+        f"got {positional_count}", call.span,
+      )
+    return
+
+  if positional_count > len(signature.parameters):
+    raise PyIndoError(f"Too many positional arguments for function '{call.callee}'", call.span)
+
+  filled = set(signature.parameters[:positional_count])
+  for keyword in call.keywords:
+    if keyword.name not in signature.parameters:
+      raise PyIndoError(f"Unknown keyword argument '{keyword.name}' for function '{call.callee}'", keyword.span)
+    if keyword.name in filled:
+      raise PyIndoError(f"Multiple values for argument '{keyword.name}'", keyword.span)
+    filled.add(keyword.name)
+
+  for name in signature.parameters:
+    if name not in filled:
+      raise PyIndoError(f"Missing required argument '{name}' for function '{call.callee}'", call.span)
+
+
 class FunctionAnalyzer:
   """
   Validate one function with a fixed binding table and path-local initialization.
@@ -200,14 +233,14 @@ class FunctionAnalyzer:
         if signature is None:
           raise PyIndoError(f"Unknown function: {expression.callee}", expression.span)
 
-        if len(expression.arguments) != len(signature.parameters):
-          raise PyIndoError(
-            f"Function '{expression.callee}' expects {len(signature.parameters)} arguments, "
-            f"got {len(expression.arguments)}", expression.span,
-          )
+        validate_call_arguments(expression, signature)
+      elif expression.keywords:
+        raise PyIndoError("'tampilkan' accepts positional arguments only", expression.keywords[0].span)
 
       for argument in expression.arguments:
         self.expression(argument, initialized)
+      for keyword in expression.keywords:
+        self.expression(keyword.value, initialized)
     elif isinstance(expression, InterpolatedString):
       for part in expression.parts:
         if not isinstance(part, str):

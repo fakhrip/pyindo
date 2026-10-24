@@ -6,7 +6,7 @@ from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, ComparisonChain,
   ComparisonLink, Conditional, Continue, Expression,
   Declaration, Delete, For, ForEach, Function, If, Import, ImportBinding, Index,
-  IndexedAssignment, InterpolatedString,
+  IndexedAssignment, InterpolatedString, KeywordArgument,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
   Parameter, Program, Return, Switch, SwitchCase, TypeAnnotation, Unary, While,
 )
@@ -595,6 +595,36 @@ class Parser:
     closing = self.expect("]")
     return ListLiteral(items, opening.span.through(closing.span))
 
+  def parse_call_arguments(self) -> tuple[list[Expression], list[KeywordArgument]]:
+    """
+    Read positional then named values, leaving the closing parenthesis owned by the caller.
+
+    Separate lists preserve written evaluation order because positional values
+    cannot follow a keyword. A label is recognized only by a bare name and '='.
+    """
+
+    arguments, keywords = [], []
+    names = set()
+    if self.current.text != ")":
+      while True:
+        if self.current.kind == TokenKind.NAME and self.tokens[self.position + 1].text == "=":
+          name = self.advance()
+          self.expect("=")
+          if name.text in names:
+            raise PyIndoError(f"Duplicate keyword argument: {name.text}", name.span)
+          names.add(name.text)
+          value = self.parse_expression()
+          keywords.append(KeywordArgument(name.text, value, name.span.through(value.span)))
+        else:
+          if keywords:
+            raise self.expected("keyword argument after a named argument")
+          arguments.append(self.parse_expression())
+
+        if not self.match(","):
+          break
+
+    return arguments, keywords
+
   def parse_primary(self):
     """
     Parse values and direct calls, bounding members to one namespace/name pair.
@@ -632,17 +662,9 @@ class Parser:
           return ModuleMember(token.text, member.text, token.span.through(member.span))
         return Name(token.text, token.span)
 
-      arguments = []
-
-      if self.current.text != ")":
-        while True:
-          arguments.append(self.parse_expression())
-
-          if not self.match(","):
-            break
-
+      arguments, keywords = self.parse_call_arguments()
       closing = self.expect(")")
-      return Call(callee, arguments, token.span.through(closing.span))
+      return Call(callee, arguments, token.span.through(closing.span), keywords)
 
     raise self.expected("expression")
 

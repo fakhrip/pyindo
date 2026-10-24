@@ -81,9 +81,16 @@ class ListLiteral:
 
 
 @dataclass(frozen=True)
+class SliceKey:
+  start: "Expression"
+  stop: "Expression"
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Index:
   container: "Expression"
-  index: "Expression"
+  index: "Expression | SliceKey"
   span: SourceSpan
 
 

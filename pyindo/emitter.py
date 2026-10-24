@@ -7,9 +7,9 @@ from bytecode.instr import InstrLocation
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, SOURCE_NEWLINE_PATTERN, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, ComparisonChain, Conditional, Continue,
-  Declaration, Delete, For, ForEach, Function, If, Index, IndexedAssignment, InterpolatedString,
+  Declaration, Delete, Expression, For, ForEach, Function, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
-  Program, Return, Switch, Unary, While,
+  Program, Return, SliceKey, Switch, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, ProgramSymbols, ValueBinding, analyze_program
 from pyindo.runtime import MODULE_VALUE_NAMES
@@ -26,6 +26,7 @@ MODULE_EXPORT_NAME = "<pyindo:module_export>"
 READ_MODULE_VALUE_NAME = "<pyindo:read_module_value>"
 UNINITIALIZED_MODULE_VALUE_NAME = "<pyindo:module_uninitialized>"
 MISSING_ARGUMENT_NAME = "<pyindo:missing_argument>"
+MAKE_INCLUSIVE_SLICE_NAME = "<pyindo:make_inclusive_slice>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -207,6 +208,25 @@ def emit_call(call: Call, context: EmissionContext) -> list[Instr | Label]:
   return instructions
 
 
+def emit_subscript_key(key: Expression | SliceKey, context: EmissionContext) -> list[Instr | Label]:
+  """
+  Leave one index or inclusive slice key above the existing caller stack.
+
+  Bounds evaluate before conversion. The shared helper call preserves the
+  container and any pending RHS/iterator values for reads, writes and deletion.
+  """
+
+  if not isinstance(key, SliceKey):
+    return emit_expression(key, context)
+
+  return [
+    context.instruction("LOAD_GLOBAL", (True, MAKE_INCLUSIVE_SLICE_NAME), span=key.span),
+    *emit_expression(key.start, context),
+    *emit_expression(key.stop, context),
+    context.instruction("CALL", 2, span=key.span),
+  ]
+
+
 def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]:
   """
   Emit an expression with exactly one result and no discarded intermediate values.
@@ -244,7 +264,7 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
   if isinstance(expression, Index):
     return [
       *emit_expression(expression.container, context),
-      *emit_expression(expression.index, context),
+      *emit_subscript_key(expression.index, context),
       instruction("BINARY_OP", BinaryOp.SUBSCR),
     ]
 
@@ -539,7 +559,7 @@ def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
     )
     instructions.extend([
       *emit_expression(target.container, context),
-      *emit_expression(target.index, context),
+      *emit_subscript_key(target.index, context),
       context.instruction(
         "STORE_SUBSCR" if isinstance(statement, IndexedAssignment) else "DELETE_SUBSCR",
         span=target.span, has_argument=False,
@@ -819,6 +839,7 @@ def compile_program(
   helpers = [
     ("pyindo.type_checks", "prepare_typed_value", PREPARE_VALUE_NAME),
     ("pyindo.runtime", "invoke_entrypoint", INVOKE_ENTRYPOINT_NAME),
+    ("pyindo.runtime", "make_inclusive_slice", MAKE_INCLUSIVE_SLICE_NAME),
   ]
   if any(scope.constant_names for scope in symbols.scopes.values()) or any(
     binding.is_constant for binding in symbols.module_values.values()

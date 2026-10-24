@@ -72,6 +72,8 @@ and live value imports with rebinding controlled by the declaring module.
 Milestone 10 adds `cocokkan` switches with lazy expression cases and no fallthrough.
 Milestone 11 adds lazy comparison chains and infix `tidak didalam` membership.
 Milestone 12 adds keyword calls and typed defaults evaluated on each omitted call.
+Milestone 13 adds inclusive `hingga` slices with two required bounds for reads,
+assignment and deletion.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
@@ -84,7 +86,7 @@ Milestone 12 adds keyword calls and typed defaults evaluated on each omitted cal
 | `cocokkan` with grouped expression cases and an optional fallback | Structural patterns, captures, guards, and switch expressions |
 | Braced `selama`, C-style and iterator `untuk`, `berhenti`, and `lewati` | Range helpers, unpacked loop targets, and loop-else |
 | Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and augmented attribute/index targets |
-| Fresh nested list literals, indexed reads/writes, and indexed `hapus` | Slices, dictionaries/sets, comprehensions, methods, and unpacking |
+| Fresh nested lists, indexed reads/writes/`hapus`, and inclusive `hingga` slicing | Open/stepped/reverse slices, dictionaries/sets, comprehensions, methods, and unpacking |
 | Deeply immutable detached constant snapshots | Freezing arbitrary foreign Python objects |
 | `didalam`/`tidak didalam` membership and contextual `tidak kosong` predicates | Ungrouped chains with postfix `tidak kosong` predicates |
 | Mandatory annotations, checked list copies, and runtime type contracts | General static expression inference and user-defined types |
@@ -528,6 +530,58 @@ their caller's arguments, and host `sys.argv` is unchanged. The program name com
 from the entry function's current `co_filename`, including legacy filename overrides;
 the default is `<pyindo>`, and an injected `__file__` does not override that metadata.
 
+### Inclusive slicing
+
+Use `angka[x hingga y]` to select consecutive elements from index x through
+index y, **including y**. Both bounds are required expressions. Selection always
+moves forward; there is no step clause, open bound or reverse-slicing syntax.
+
+```pyindo
+fungsi utama(): kosong {
+  variabel angka: himpunan<desimal> = [0, 1, 2, 3, 4, 5];
+
+  tampilkan(angka[1 hingga 3], "|");
+  angka[1 hingga 3] = [8, 9];
+  hapus angka[2 hingga 3];
+  tampilkan(angka, "|", "café"[1 hingga 2]);
+}
+```
+
+This prints `[1, 2, 3]|[0, 8, 5]|af`. Negative indices count from the end:
+`angka[0 hingga -1]` selects all elements with both bounds explicit, and
+`angka[-3 hingga -1]` selects the last three in their original order. Bounds
+clip to the sequence's current length. A start after the end selects nothing;
+assignment to that empty selection inserts at the clipped start position.
+Strings select Unicode code points and remain immutable.
+
+Reads evaluate the base, start and end once in that order. Assignment evaluates
+its RHS first, then the target base and bounds; `hapus` evaluates only its target.
+After these expressions, start and end are converted through the integer-index
+protocol once each, in order. Boolean and arbitrarily large integer bounds work;
+`None` or a non-index value raises `TypeError`. Earlier expression/callback effects
+remain visible when a later operation fails. All bounds still receive static
+name, call and initialization checks in skipped or dead code.
+
+Native and checked list slices produce shallow native outer lists; nested checked
+or frozen elements retain their identity and protections. Typed boundaries apply
+the existing checked-copy rules. Frozen slices remain frozen wrappers even when
+assigned to mutable bindings. Slice assignment accepts replacement iterables and
+may resize a mutable collection. Checked lists validate the whole incoming batch
+before committing their replacement; earlier iterator/callback effects are not
+rolled back. Known constant roots reject mutation statically, and indirect writes
+to frozen slices raise `TypeError`. Imported mutable values allow slice mutation
+under the existing owner-controlled rebinding rules.
+
+Slice reads can be chained with ordinary indexing, as in `buat()[1 hingga 3][0]`.
+Assignment and `hapus` also work in `maka` arms and C-style loop headers. Reject
+`angka[hingga y]`, `angka[x hingga]`, `langkah` clauses, `angka[::-1]`,
+`angka[1:2:2]` and other colon slices. Indexed/sliced augmented assignments,
+postfix updates and comma-separated keys remain unsupported. `hingga` is
+contextual after the first bound; `angka[hingga]` remains ordinary indexing with
+a variable named hingga. Existing names and keyword labels named hingga/langkah
+need no new parentheses. Foreign `apapun` receivers get a real slice with its
+inclusive end translated after bound validation.
+
 ### Collections and constant snapshots
 
 ```pyindo
@@ -572,7 +626,8 @@ Checked values are private sequence objects, rather than Python `list` instances
 Host integrations can obtain a native shallow outer copy with `list(value)`.
 Concatenation, repetition, host slicing, and `copy()` likewise yield native shallow
 outer lists; nested checked/frozen children retain their contracts. Source methods
-and slices remain unsupported. Source `+=` still adds/rebinds; host `+=` on a
+remain unsupported; source slicing uses the required-bound `hingga` form above.
+Source `+=` still adds/rebinds; host `+=` on a
 checked sequence mutates that object in place.
 
 Indexing binds above unary signs and power. Reads can be chained and can follow
@@ -584,7 +639,7 @@ immutable strings retain runtime `TypeError`/`IndexError` tracebacks.
 `angka[index] = value;` evaluates the RHS first, then the target base and indices
 from left to right, each once. `hapus angka[index];` evaluates its target once
 and removes that element; it does not delete the local binding. Both statements
-work in `maka` arms and for-header statement slots. Indexed `+=`/`++`, slices,
+work in `maka` arms and for-header statement slots. Indexed `+=`/`++`, colon slices,
 multiple indices in one bracket pair, and variable deletion remain unsupported.
 
 `konstanta saved: apapun = original;` takes a deeply immutable snapshot of every nested

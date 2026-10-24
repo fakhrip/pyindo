@@ -5,7 +5,7 @@ from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, ComparisonChain, Conditional, Continue,
   Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
-  Program, Return, Switch, Unary, While,
+  Program, Return, SliceKey, Switch, Unary, While,
 )
 from pyindo.types import TypeSpec, allows_none, resolve_type
 
@@ -213,7 +213,12 @@ class FunctionAnalyzer:
         self.expression(item, initialized)
     elif isinstance(expression, Index):
       self.expression(expression.container, initialized)
-      self.expression(expression.index, initialized)
+      if isinstance(expression.index, SliceKey):
+        # Both bounds are real reads, even when enclosing code is skipped.
+        self.expression(expression.index.start, initialized)
+        self.expression(expression.index.stop, initialized)
+      else:
+        self.expression(expression.index, initialized)
     elif isinstance(expression, (Binary, Logical)):
       # Runtime laziness never hides invalid bindings or calls from analysis.
       self.expression(expression.left, initialized)

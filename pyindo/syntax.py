@@ -8,7 +8,7 @@ from pyindo.nodes import (
   Declaration, Delete, For, ForEach, Function, If, Import, ImportBinding, Index,
   IndexedAssignment, InterpolatedString, KeywordArgument,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
-  Parameter, Program, Return, Switch, SwitchCase, TypeAnnotation, Unary, While,
+  Parameter, Program, Return, SliceKey, Switch, SwitchCase, TypeAnnotation, Unary, While,
 )
 
 
@@ -570,17 +570,35 @@ class Parser:
 
   def parse_postfix(self):
     """
-    Attach index suffixes to one primary without introducing callable expressions.
+    Attach index or slice suffixes without introducing callable expressions.
     """
 
     expression = self.parse_primary()
 
-    while self.match("["):
-      index = self.parse_expression()
-      closing = self.expect("]")
-      expression = Index(expression, index, expression.span.through(closing.span))
+    while self.current.text == "[":
+      expression = self.parse_subscript(expression)
 
     return expression
+
+  def parse_subscript(self, container: Expression) -> Index:
+    """
+    Read one index or two required inclusive bounds, owning both brackets.
+
+    Parse the first expression before recognizing hingga so existing indices
+    and functions named hingga remain ordinary names without grouping escapes.
+    """
+
+    opening = self.expect("[")
+    start = self.parse_expression()
+    if self.match("hingga"):
+      stop = self.parse_expression()
+      closing = self.expect("]")
+      key = SliceKey(start, stop, opening.span.through(closing.span))
+    else:
+      closing = self.expect("]")
+      key = start
+
+    return Index(container, key, container.span.through(closing.span))
 
   def parse_list(self) -> ListLiteral:
     """

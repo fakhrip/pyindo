@@ -70,13 +70,14 @@ calls while retaining each file's own function globals and type contracts.
 Milestone 9 adds typed module-level variables/constants, ordered initialization,
 and live value imports with rebinding controlled by the declaring module.
 Milestone 10 adds `cocokkan` switches with lazy expression cases and no fallthrough.
+Milestone 11 adds lazy comparison chains and infix `tidak didalam` membership.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
 | Function-local and module-level typed variables/constants and reassignment | Closures and nested functions |
 | Typed positional parameters, nested calls, forward calls, and recursion | Default/keyword/variadic parameters and first-class functions |
 | Real returns, typed argv/argc, and entrypoint-selected process status | Default/keyword/variadic entrypoint arguments |
-| Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place arithmetic |
+| Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparison chains | Collection in-place arithmetic |
 | Lazy logic, logical negation, and conditional expressions | Assignment expressions |
 | Nested conditions and single-statement `maka` arms | Unbraced compound arms and optional statement semicolons |
 | `cocokkan` with grouped expression cases and an optional fallback | Structural patterns, captures, guards, and switch expressions |
@@ -84,7 +85,7 @@ Milestone 10 adds `cocokkan` switches with lazy expression cases and no fallthro
 | Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and augmented attribute/index targets |
 | Fresh nested list literals, indexed reads/writes, and indexed `hapus` | Slices, dictionaries/sets, comprehensions, methods, and unpacking |
 | Deeply immutable detached constant snapshots | Freezing arbitrary foreign Python objects |
-| `didalam` membership and contextual `tidak kosong` predicates | Infix `tidak didalam` and chained predicates |
+| `didalam`/`tidak didalam` membership and contextual `tidak kosong` predicates | Ungrouped chains with postfix `tidak kosong` predicates |
 | Mandatory annotations, checked list copies, and runtime type contracts | General static expression inference and user-defined types |
 | Unicode/multiline strings, escapes, `${expression}`, and comments | Raw/byte string prefixes |
 | Local imports, live values, typed functions, aliases, and namespace reads/calls | Packages, reexports, wildcard/Python imports, and general attribute access |
@@ -552,9 +553,10 @@ constants reject cycles and unsupported objects. A frozen value accepted by a
 `himpunan<T>` annotation remains immutable.
 
 `item didalam values` returns an exact Boolean and evaluates item before values.
-It supports list equality membership and string substring membership. Negate it
-with `tidak (item didalam values)`. Membership has comparison precedence, and
-mixed comparison chains still need explicit grouping.
+It supports list equality membership and string substring membership.
+`item tidak didalam values` returns its inverse, with the same evaluation order
+and native membership protocols. `tidak (item didalam values)` remains valid.
+Both membership forms share comparison precedence and can join binary chains.
 
 `values tidak kosong` returns an exact Boolean using general truthiness: empty
 lists/strings and zero are false. The contextual phrase keeps `kosong` available
@@ -660,6 +662,44 @@ tidak == not || !
 ```
 
 Also note that we introduced new keyword in this language that are unique just to this language such as `maka`, so in order for you to understand the whole language syntax, you can see some of examples exist inside the [`tests/`](./tests/) directory.
+
+### Chained comparisons
+
+Comparison chains evaluate operands left to right, with each middle operand
+evaluated once. A false intermediate comparison skips all remaining operands:
+
+```pyindo
+fungsi utama(): kosong {
+  variabel nilai: desimal = 7;
+  konstanta dilarang: himpunan<desimal> = [0, 13];
+
+  tampilkan(0 < nilai < 10, "|", nilai tidak didalam dilarang, "|", 3 > 2 > 5);
+}
+```
+
+This prints `True|True|False`. `a < b <= c` compares `a` with `b`, then `b`
+with `c`. All existing binary comparison operators can mix, including `adalah`
+for `==`, `bukan` for `!=`, and both membership forms. For example,
+`1 < 2 didalam [2]` is true. The aliases retain value-comparison meanings.
+Arithmetic binds above comparisons; `tidak`, `dan` and `atau` bind below them.
+Parentheses keep separate comparisons: `(a < b) < c` compares a result with `c`.
+
+Value contexts preserve native rich comparison results: a chain returns its
+first false-tested result object, or its final untested result. Existing
+`apapun` and `logika` contracts still apply; `logika` requires an exact Boolean.
+Conditions consume each visited result with one truth test. Materializing a
+chain before outer `dan`/`atau` or value-producing `tidak` can test its returned
+object again, matching CPython even for an embedding object's changing truth
+value. Membership results are always exact Booleans; comparison, membership
+and truth errors propagate normally.
+
+All operands are checked statically even when skipped at runtime. Later operands
+read live module values when reached. Retaining a middle object preserves it
+across owner rebinding; mutation of that object is visible to the next comparison.
+Whitespace or comments can separate `tidak` and `didalam` without affecting
+prefix negation or contextual names. The separate `tidak kosong` predicate
+still needs grouping with comparisons: use `(values tidak kosong) == benar`
+or `(a < b) tidak kosong`.
 
 ### Switch statements
 

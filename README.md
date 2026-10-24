@@ -69,6 +69,7 @@ Milestone 8 adds local `.pyind` modules with named imports, aliases, and namespa
 calls while retaining each file's own function globals and type contracts.
 Milestone 9 adds typed module-level variables/constants, ordered initialization,
 and live value imports with rebinding controlled by the declaring module.
+Milestone 10 adds `cocokkan` switches with lazy expression cases and no fallthrough.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
@@ -78,6 +79,7 @@ and live value imports with rebinding controlled by the declaring module.
 | Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place arithmetic |
 | Lazy logic, logical negation, and conditional expressions | Assignment expressions |
 | Nested conditions and single-statement `maka` arms | Unbraced compound arms and optional statement semicolons |
+| `cocokkan` with grouped expression cases and an optional fallback | Structural patterns, captures, guards, and switch expressions |
 | Braced `selama`, C-style and iterator `untuk`, `berhenti`, and `lewati` | Range helpers, unpacked loop targets, and loop-else |
 | Name-only augmented assignments and postfix `++`/`--` statements | Prefix/expression-valued updates and augmented attribute/index targets |
 | Fresh nested list literals, indexed reads/writes, and indexed `hapus` | Slices, dictionaries/sets, comprehensions, methods, and unpacking |
@@ -658,6 +660,63 @@ tidak == not || !
 ```
 
 Also note that we introduced new keyword in this language that are unique just to this language such as `maka`, so in order for you to understand the whole language syntax, you can see some of examples exist inside the [`tests/`](./tests/) directory.
+
+### Switch statements
+
+Use `cocokkan` to compare one value against ordered expression cases:
+
+```pyindo
+konstanta berhasil: desimal = 200;
+
+fungsi uraikan(kode: desimal): campuran {
+  cocokkan (kode) {
+    kasus berhasil, 201 {
+      hasilkan "berhasil";
+    }
+    kasus 404 {
+      hasilkan "tidak ditemukan";
+    }
+    selainnya {
+      hasilkan "lainnya";
+    }
+  }
+}
+
+fungsi utama(): kosong {
+  tampilkan(uraikan(201), "|", uraikan(404), "|", uraikan(500));
+}
+```
+
+This prints `berhasil|tidak ditemukan|lainnya`. The subject runs once. Each
+`kasus` accepts one or more expressions, including calls and imported constants,
+separated by commas. Values are evaluated left to right, in case order, only
+until the first equality match. That body's completion continues after the
+switch; remaining values, later bodies and the fallback do not execute. Empty
+matching bodies also win. There is no fallthrough or explicit case-ending break.
+
+Comparisons use ordinary `subject == candidate` semantics, including Boolean/
+numeric equality and checked/frozen list comparisons. A foreign comparison
+result is truth-tested once, and comparison/truth errors propagate normally.
+No identity shortcut or hash lookup is used. The captured subject is neither
+copied nor frozen: owner rebinding does not replace it, while mutation of that
+same object can affect later comparisons. Later candidate expressions still
+read live imported values at their own evaluation time.
+
+Require a parenthesized subject, at least one `kasus`, and braces around each
+body. An optional `selainnya` must be last and unique. Without it, an unmatched
+subject simply continues after the switch. Case lists do not accept a trailing
+comma. `kasus` remains a valid identifier elsewhere; case expressions read
+existing names rather than declaring pattern bindings. Switches cannot be
+expressions, top-level statements or unbraced compound `maka` arms.
+
+Bodies retain function scope, mandatory annotations, constant/ownership rules
+and initialization checks. Every header/body is checked statically even when
+it will be skipped. A nonnullable function whose only return paths are in a
+switch needs a returning fallback as well; the compiler does not infer
+exhaustiveness from literal cases. `berhenti` and `lewati` still target the
+nearest loop and remain invalid outside a loop. `hasilkan` returns from the
+function. Structural patterns, captures, guards and switch expressions remain
+future work.
 
 ### Conditional expressions
 

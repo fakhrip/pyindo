@@ -6,7 +6,7 @@ from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, ForEach, Function, If, Import, ImportBinding, Index,
   IndexedAssignment, InterpolatedString,
-  ListLiteral, Literal, Logical, Name, NonEmpty,
+  ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
   Parameter, Program, Return, TypeAnnotation, Unary, While,
 )
 
@@ -519,7 +519,7 @@ class Parser:
 
   def parse_primary(self):
     """
-    Parse one literal, grouped expression, local name, or direct named call.
+    Parse values and direct calls, bounding members to one namespace/name pair.
     """
 
     token = self.current
@@ -546,12 +546,12 @@ class Parser:
       qualified = self.match(".")
 
       if qualified:
-        member = self.expect_name("imported function name")
+        member = self.expect_name("imported member name")
         callee += "." + member.text
 
       if not self.match("("):
         if qualified:
-          raise self.expected("'(' after a qualified function name")
+          return ModuleMember(token.text, member.text, token.span.through(member.span))
         return Name(token.text, token.span)
 
       arguments = []
@@ -597,7 +597,7 @@ class Parser:
 
 def parse_module(source_text: str) -> Program:
   """
-  Parse top-level imports and functions; semantic validation follows separately.
+  Parse imports, functions and ordered typed declarations without executing them.
   """
 
   parser = None
@@ -606,14 +606,17 @@ def parse_module(source_text: str) -> Program:
     parser = Parser(source_text)
     functions = []
     imports = []
+    declarations = []
 
     while parser.current.kind != TokenKind.EOF:
       if parser.current.text in ("dari", "impor"):
         imports.append(parser.parse_import())
+      elif parser.current.text in ("variabel", "konstanta"):
+        declarations.append(parser.parse_statement())
       else:
         functions.append(parser.parse_function())
 
-    return Program(functions, source_text, parser.tokens[0].span.through(parser.current.span), imports)
+    return Program(functions, source_text, parser.tokens[0].span.through(parser.current.span), imports, declarations)
   except RecursionError as complexity_error:
     span = parser.current.span if parser is not None else SourceMap(source_text).span(0, 0)
     raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, span) from complexity_error

@@ -23,6 +23,13 @@ class Name:
 
 
 @dataclass(frozen=True)
+class ModuleMember:
+  namespace: str
+  member: str
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Unary:
   operator: str
   operand: "Expression"
@@ -86,7 +93,7 @@ class InterpolatedString:
 
 
 type Expression = (
-  Literal | Name | Unary | Binary | Logical | Conditional | ListLiteral | Index | NonEmpty | Call | InterpolatedString
+  Literal | Name | ModuleMember | Unary | Binary | Logical | Conditional | ListLiteral | Index | NonEmpty | Call | InterpolatedString
 )
 
 
@@ -228,3 +235,4 @@ class Program:
   source_text: str
   span: SourceSpan
   imports: list[Import] = field(default_factory=list)
+  declarations: list[Declaration] = field(default_factory=list)

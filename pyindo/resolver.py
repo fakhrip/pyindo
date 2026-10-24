@@ -4,7 +4,7 @@ from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
-  ListLiteral, Literal, Logical, Name, NonEmpty,
+  ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
   Program, Return, Unary, While,
 )
 from pyindo.types import TypeSpec, allows_none, resolve_type
@@ -33,9 +33,19 @@ class FunctionScope:
 
 
 @dataclass(frozen=True)
+class ValueBinding:
+  name: str
+  type_spec: TypeSpec
+  is_constant: bool
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class ProgramSymbols:
   signatures: dict[str, FunctionSignature]
   scopes: dict[str, FunctionScope]
+  module_values: dict[str, ValueBinding] = field(default_factory=dict)
+  imported_values: dict[str, ValueBinding] = field(default_factory=dict)
 
 
 @dataclass
@@ -91,13 +101,22 @@ class FunctionAnalyzer:
   slot never implies that a declaration on another path has executed.
   """
 
-  def __init__(self, scope: FunctionScope, signatures: dict[str, FunctionSignature]):
+  def __init__(
+    self, scope: FunctionScope, signatures: dict[str, FunctionSignature], *,
+    module_values: dict[str, ValueBinding] | None = None,
+    imported_values: dict[str, ValueBinding] | None = None,
+  ):
     self.scope = scope
     self.signatures = signatures
     self.local_names = set(scope.local_names)
+    self.module_values = module_values or {}
+    self.imported_values = imported_values or {}
 
   def require_initialized(self, name: str, span: SourceSpan, initialized: set[str]):
-    if name not in self.local_names:
+    if name in self.imported_values:
+      return
+
+    if name not in self.local_names and name not in self.module_values:
       raise PyIndoError(f"Identifier '{name}' has not declared yet", span)
 
     if name not in initialized:
@@ -113,6 +132,10 @@ class FunctionAnalyzer:
 
     if isinstance(expression, Name):
       self.require_initialized(expression.identifier, expression.span, initialized)
+    elif isinstance(expression, ModuleMember):
+      name = f"{expression.namespace}.{expression.member}"
+      if name not in self.imported_values:
+        raise PyIndoError(f"Unknown module value: {name}", expression.span)
     elif isinstance(expression, (Unary, NonEmpty)):
       self.expression(expression.operand, initialized)
     elif isinstance(expression, ListLiteral):
@@ -166,8 +189,13 @@ class FunctionAnalyzer:
     while isinstance(root, Index):
       root = root.container
 
-    if isinstance(root, Name) and root.identifier in self.scope.constant_names:
-      raise PyIndoError(f"Cannot mutate constant '{root.identifier}'", target.span)
+    name = (
+      root.identifier if isinstance(root, Name) else
+      f"{root.namespace}.{root.member}" if isinstance(root, ModuleMember) else None
+    )
+    binding = self.module_values.get(name) or self.imported_values.get(name)
+    if name in self.scope.constant_names or (binding is not None and binding.is_constant):
+      raise PyIndoError(f"Cannot mutate constant '{name}'", target.span)
 
   def block(self, body, initialized: set[str], *, loop_depth: int = 0) -> FlowResult:
     """
@@ -209,7 +237,11 @@ class FunctionAnalyzer:
     elif isinstance(statement, (Assignment, AugmentedAssignment)):
       self.require_initialized(statement.target, statement.span, initialized)
 
-      if statement.target in self.scope.constant_names:
+      if statement.target in self.imported_values:
+        raise PyIndoError(f"Cannot rebind imported value '{statement.target}'", statement.span)
+
+      binding = self.module_values.get(statement.target)
+      if statement.target in self.scope.constant_names or (binding is not None and binding.is_constant):
         raise PyIndoError(f"Cannot reassign constant '{statement.target}'", statement.span)
 
       self.expression(statement.value, initialized)
@@ -320,6 +352,7 @@ def _binding_type(annotation, span: SourceSpan) -> TypeSpec:
 def _analyze_program(
   program: Program, *, imported_signatures: dict[str, FunctionSignature] | None = None,
   namespace_names: set[str] | None = None, require_entrypoint: bool = True,
+  imported_values: dict[str, ValueBinding] | None = None,
 ) -> ProgramSymbols:
   """
   Register all functions, collect locals, then validate calls and live paths.
@@ -328,9 +361,11 @@ def _analyze_program(
   signatures = dict(imported_signatures or {})
   namespaces = set(namespace_names or ())
   scopes = {}
+  module_values = {}
+  imported_values = dict(imported_values or {})
 
   for function in program.functions:
-    if function.name in RESERVED_FUNCTION_NAMES or function.name in namespaces:
+    if function.name in RESERVED_FUNCTION_NAMES or function.name in namespaces or function.name in imported_values:
       raise PyIndoError(
         f"Function name '{function.name}' is reserved", function.name_span or function.span,
       )
@@ -343,6 +378,27 @@ def _analyze_program(
       tuple(_binding_type(parameter.annotation, parameter.span) for parameter in function.parameters),
       _binding_type(function.return_annotation, function.span),
     )
+
+  # Collect every owned binding before checking bodies; initializer order is
+  # validated separately, while functions rely on runtime publication guards.
+  for declaration in program.declarations:
+    name = declaration.name
+    if name in module_values:
+      raise PyIndoError(f"Duplicate module declaration: {name}", declaration.span)
+    if name in signatures or name in namespaces or name in imported_values or name in RESERVED_FUNCTION_NAMES | {"utama"}:
+      raise PyIndoError(f"Module name '{name}' conflicts with an existing or reserved name", declaration.span)
+    module_values[name] = ValueBinding(
+      name, _binding_type(declaration.annotation, declaration.span), declaration.is_constant, declaration.span,
+    )
+
+  initializer_scope = FunctionScope("<module>", [], [], set())
+  initializer_analyzer = FunctionAnalyzer(
+    initializer_scope, signatures, module_values=module_values, imported_values=imported_values,
+  )
+  initialized_globals = set()
+  for declaration in program.declarations:
+    initializer_analyzer.expression(declaration.value, initialized_globals)
+    initialized_globals.add(declaration.name)
 
   entry_function = next((function for function in program.functions if function.name == "utama"), None)
   if require_entrypoint and entry_function is None:
@@ -380,6 +436,9 @@ def _analyze_program(
       if name in signatures or name in namespaces or name == "tampilkan":
         raise PyIndoError(f"Local name '{name}' conflicts with a function", span)
 
+      if name in module_values or name in imported_values:
+        raise PyIndoError(f"Local name '{name}' conflicts with a module value", span)
+
       if name in local_names:
         raise PyIndoError(f"Duplicate local declaration: {name}", span)
 
@@ -394,16 +453,19 @@ def _analyze_program(
       binding_types, signatures[function.name].return_type,
     )
     scopes[function.name] = scope
-    flow = FunctionAnalyzer(scope, signatures).block(function.body, set(parameters))
+    flow = FunctionAnalyzer(
+      scope, signatures, module_values=module_values, imported_values=imported_values,
+    ).block(function.body, set(parameters) | set(module_values))
     if flow.falls_through and not allows_none(scope.return_type):
       raise PyIndoError("Function may finish without a return value", function.span)
 
-  return ProgramSymbols(signatures, scopes)
+  return ProgramSymbols(signatures, scopes, module_values, imported_values)
 
 
 def analyze_program(
   program: Program, *, imported_signatures: dict[str, FunctionSignature] | None = None,
   namespace_names: set[str] | None = None, require_entrypoint: bool = True,
+  imported_values: dict[str, ValueBinding] | None = None,
 ) -> ProgramSymbols:
   """
   Validate bindings and initialization, reporting the compiler's traversal limit.
@@ -412,7 +474,7 @@ def analyze_program(
   try:
     return _analyze_program(
       program, imported_signatures=imported_signatures, namespace_names=namespace_names,
-      require_entrypoint=require_entrypoint,
+      require_entrypoint=require_entrypoint, imported_values=imported_values,
     )
   except RecursionError as complexity_error:
     raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, program.span) from complexity_error

@@ -47,7 +47,10 @@ impor "other.pyind" sebagai hitung;
 fungsi utama(): kosong { tampilkan(impor(2)); }
 ''')
     analyze_program(program)
-    for expression in ("math.value", "math.sub.value()", "(math).value()", "math.value = 1"):
+    # A single member may now be a value; the resolver still requires an export.
+    with self.assertRaises(PyIndoError):
+      analyze_program(parse_module("fungsi utama(): kosong { tampilkan(math.value); }"))
+    for expression in ("math.sub.value()", "(math).value()", "math.value = 1"):
       with self.subTest(expression=expression):
         with self.assertRaises(PyIndoError):
           parse_module(f"fungsi utama(): kosong {{ tampilkan({expression}); }}")

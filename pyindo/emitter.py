@@ -7,7 +7,7 @@ from bytecode.instr import InstrLocation
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, SOURCE_NEWLINE_PATTERN, PyIndoError, SourceSpan
 from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, ComparisonChain, Conditional, Continue,
-  Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
+  Declaration, Delete, For, ForEach, Function, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
   Program, Return, Switch, Unary, While,
 )
@@ -25,6 +25,7 @@ IMPORT_BINDINGS_NAME = "<pyindo:import_bindings>"
 MODULE_EXPORT_NAME = "<pyindo:module_export>"
 READ_MODULE_VALUE_NAME = "<pyindo:read_module_value>"
 UNINITIALIZED_MODULE_VALUE_NAME = "<pyindo:module_uninitialized>"
+MISSING_ARGUMENT_NAME = "<pyindo:missing_argument>"
 
 BINARY_OPERATIONS = {
   "+": BinaryOp.ADD, "-": BinaryOp.SUBTRACT, "*": BinaryOp.MULTIPLY,
@@ -725,6 +726,37 @@ def emit_loop_body(body, context: EmissionContext, targets: LoopTargets) -> list
   return instructions
 
 
+def emit_parameter_bindings(function: Function, context: EmissionContext) -> list[Instr | Label]:
+  """
+  Evaluate omitted defaults and check each parameter in declaration order.
+
+  Native binding has already evaluated and assigned all supplied arguments.
+  Store each checked value before the next default reads an earlier parameter.
+  """
+
+  instructions = []
+  for parameter in function.parameters:
+    if parameter.default is not None:
+      supplied_label = Label()
+      instructions.extend([
+        context.instruction("LOAD_FAST_CHECK", parameter.name, span=parameter.span),
+        context.instruction("LOAD_GLOBAL", (False, MISSING_ARGUMENT_NAME), span=parameter.span),
+        context.instruction("IS_OP", 0, span=parameter.span),
+        context.instruction("POP_JUMP_IF_FALSE", supplied_label, span=parameter.span),
+        *emit_expression(parameter.default, context),
+        context.instruction("STORE_FAST", parameter.name, span=parameter.span), supplied_label,
+      ])
+
+    instructions.extend(emit_type_guard(
+      [context.instruction("LOAD_FAST_CHECK", parameter.name, span=parameter.span)],
+      context.scope.binding_types[parameter.name],
+      _contract_context("parameter", parameter.name, context, parameter.span), context, parameter.span,
+    ))
+    instructions.append(context.instruction("STORE_FAST", parameter.name, span=parameter.span))
+
+  return instructions
+
+
 def compile_function(
   function, scope, *, signatures, source_text, filename,
   module_values=None, imported_values=None,
@@ -739,14 +771,7 @@ def compile_function(
   )
   instructions = [Instr("RESUME", 0, lineno=function.span.line)]
 
-  # All caller arguments already exist before the first parameter is checked.
-  for parameter in function.parameters:
-    instructions.extend(emit_type_guard(
-      [context.instruction("LOAD_FAST_CHECK", parameter.name, span=parameter.span)],
-      scope.binding_types[parameter.name],
-      _contract_context("parameter", parameter.name, context, parameter.span), context, parameter.span,
-    ))
-    instructions.append(context.instruction("STORE_FAST", parameter.name, span=parameter.span))
+  instructions.extend(emit_parameter_bindings(function, context))
 
   for statement in function.body:
     instructions.extend(emit_statement(statement, context))
@@ -807,6 +832,8 @@ def compile_program(
     helpers.append(("pyindo.runtime", "read_module_value", READ_MODULE_VALUE_NAME))
   if symbols.module_values:
     helpers.append(("pyindo.runtime", "_UNINITIALIZED_MODULE_VALUE", UNINITIALIZED_MODULE_VALUE_NAME))
+  if any(symbols.signatures[function.name].default_count for function in program.functions):
+    helpers.append(("pyindo.runtime", "_MISSING_ARGUMENT", MISSING_ARGUMENT_NAME))
 
   for module_name, helper_name, global_name in helpers:
     # An impossible source identifier avoids collisions and caller-side injection.
@@ -852,10 +879,19 @@ def compile_program(
       )
     except RecursionError as complexity_error:
       raise PyIndoError(COMPLEXITY_ERROR_MESSAGE, function.span) from complexity_error
+    default_count = symbols.signatures[function.name].default_count
+    if default_count:
+      # Only markers become native defaults. Source expressions run in the
+      # callee; runtime imports keep marker objects out of marshaled constants.
+      instructions.extend(Instr("LOAD_NAME", MISSING_ARGUMENT_NAME) for _ in range(default_count))
+      instructions.append(Instr("BUILD_TUPLE", default_count))
     instructions.extend([
       Instr("LOAD_CONST", function_code, lineno=function.span.line),
-      Instr("MAKE_FUNCTION"), Instr("STORE_NAME", function.name),
+      Instr("MAKE_FUNCTION"),
     ])
+    if default_count:
+      instructions.append(Instr("SET_FUNCTION_ATTRIBUTE", 1))
+    instructions.append(Instr("STORE_NAME", function.name))
 
   initializer_context = EmissionContext(
     FunctionScope("<module>", [], [], set()), symbols.signatures, program.source_text, filename,

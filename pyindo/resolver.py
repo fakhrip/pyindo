@@ -20,6 +20,7 @@ class FunctionSignature:
   span: SourceSpan
   parameter_types: tuple[TypeSpec, ...] = ()
   return_type: TypeSpec = "apapun"
+  default_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -129,7 +130,7 @@ def validate_call_arguments(call: Call, signature: FunctionSignature) -> None:
   """
 
   positional_count = len(call.arguments)
-  if not call.keywords:
+  if not call.keywords and signature.default_count == 0:
     if positional_count != len(signature.parameters):
       raise PyIndoError(
         f"Function '{call.callee}' expects {len(signature.parameters)} arguments, "
@@ -148,7 +149,8 @@ def validate_call_arguments(call: Call, signature: FunctionSignature) -> None:
       raise PyIndoError(f"Multiple values for argument '{keyword.name}'", keyword.span)
     filled.add(keyword.name)
 
-  for name in signature.parameters:
+  required_count = len(signature.parameters) - signature.default_count
+  for name in signature.parameters[:required_count]:
     if name not in filled:
       raise PyIndoError(f"Missing required argument '{name}' for function '{call.callee}'", call.span)
 
@@ -459,10 +461,19 @@ def _analyze_program(
     if function.name in signatures:
       raise PyIndoError(f"Duplicate function: {function.name}", function.span)
 
+    default_count = 0
+    for parameter in function.parameters:
+      if parameter.default is not None:
+        default_count += 1
+      elif default_count:
+        # Embedding callers can construct ASTs without using the source parser.
+        raise PyIndoError("Required parameter cannot follow a default parameter", parameter.span)
+
     signatures[function.name] = FunctionSignature(
       function.name, [parameter.name for parameter in function.parameters], function.span,
       tuple(_binding_type(parameter.annotation, parameter.span) for parameter in function.parameters),
       _binding_type(function.return_annotation, function.span),
+      default_count,
     )
 
   # Collect every owned binding before checking bodies; initializer order is
@@ -539,9 +550,18 @@ def _analyze_program(
       binding_types, signatures[function.name].return_type,
     )
     scopes[function.name] = scope
-    flow = FunctionAnalyzer(
+    analyzer = FunctionAnalyzer(
       scope, signatures, module_values=module_values, imported_values=imported_values,
-    ).block(function.body, set(parameters) | set(module_values))
+    )
+    # Defaults see only earlier prepared parameters, never their own slot,
+    # later parameters or body locals. Check even defaults skipped by callers.
+    initialized_parameters = set(module_values)
+    for parameter in function.parameters:
+      if parameter.default is not None:
+        analyzer.expression(parameter.default, initialized_parameters)
+      initialized_parameters.add(parameter.name)
+
+    flow = analyzer.block(function.body, set(parameters) | set(module_values))
     if flow.falls_through and not allows_none(scope.return_type):
       raise PyIndoError("Function may finish without a return value", function.span)
 

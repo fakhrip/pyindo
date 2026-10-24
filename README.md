@@ -71,12 +71,13 @@ Milestone 9 adds typed module-level variables/constants, ordered initialization,
 and live value imports with rebinding controlled by the declaring module.
 Milestone 10 adds `cocokkan` switches with lazy expression cases and no fallthrough.
 Milestone 11 adds lazy comparison chains and infix `tidak didalam` membership.
+Milestone 12 adds keyword calls and typed defaults evaluated on each omitted call.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
 | Function-local and module-level typed variables/constants and reassignment | Closures and nested functions |
-| Typed positional parameters, nested calls, forward calls, and recursion | Default/keyword/variadic parameters and first-class functions |
-| Real returns, typed argv/argc, and entrypoint-selected process status | Default/keyword/variadic entrypoint arguments |
+| Typed positional/keyword arguments, per-call defaults, nested calls, forward calls, and recursion | Variadic parameters and first-class functions |
+| Real returns, typed argv/argc, and entrypoint-selected process status | Variadic entrypoint arguments |
 | Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparison chains | Collection in-place arithmetic |
 | Lazy logic, logical negation, and conditional expressions | Assignment expressions |
 | Nested conditions and single-statement `maka` arms | Unbraced compound arms and optional statement semicolons |
@@ -114,7 +115,7 @@ so helpers may appear later in the file. Every program requires exactly one
 selects the process status as described below. `hasilkan;` and falling through a
 function return `None` when its return type is `kosong` or `apapun`.
 
-Variables and constants need initializers. Parameters start initialized;
+Variables and constants need initializers. Parameters are prepared before the body;
 other names may be read only after initialization on every path that reaches
 the read. Braces do not create a separate scope. Duplicate declarations within
 a function and reassigning a constant are errors. A branch that returns does
@@ -392,6 +393,61 @@ reading a raw host dictionary slot is not a live-value API. Imported function
 slots remain ordinary function objects. Direct host dictionary edits can bypass
 language contracts; PyIndo source stores and checked collection mutations enforce them.
 
+### Default and keyword arguments
+
+Every declared parameter accepts either a positional value or its declared name.
+Positional arguments must precede keywords; keywords may appear in any order.
+Required parameters precede optional parameters, written as `name: Type = expression`.
+
+```pyindo
+fungsi tambah(awal: desimal, langkah: desimal = awal): desimal {
+  hasilkan awal + langkah;
+}
+
+fungsi daftar(isi: himpunan<desimal> = [1]): himpunan<desimal> {
+  isi[0] = isi[0] + 1;
+  hasilkan isi;
+}
+
+fungsi utama(): kosong {
+  tampilkan(tambah(3), "|", tambah(langkah=2, awal=5), "|", daftar(), "|", daftar());
+}
+```
+
+This prints `6|7|[2]|[2]`. A default runs once for each call that omits that
+parameter, inside the function's defining module. Creating the function does
+not evaluate defaults. Supplied values, including `None`, `salah`, zero and
+empty collections, skip the default and receive the usual type check.
+
+All supplied expressions run in written order before the function checks any
+parameters. Then parameters are prepared in declaration order: evaluate a
+missing default, check the selected value, and store it before preparing the
+next parameter. A default can read earlier checked parameters and current
+module/import values or call other functions. It cannot read itself, later
+parameters or body locals. Static checks inspect every default even when callers
+always override it. An earlier default's effects remain if a later parameter
+fails its check; an earlier failure prevents later defaults and the body.
+
+Each evaluated list literal is fresh. Existing values retain the usual contracts:
+ordinary lists become checked copies at a typed list boundary, while compatible
+checked lists and frozen snapshots keep their identity and protections. Defaults
+do not introduce an extra copying or freezing rule. Functions remain available
+before module declarations initialize; a default that indirectly reads an
+unpublished module binding raises the existing `NameError`.
+
+Named and namespace imports use the original declared parameter names, including
+when the function is renamed on import. Unknown keywords, duplicate values,
+missing required arguments, too many positional arguments and positional values
+after keywords are compile errors. Calls and signatures do not allow trailing
+commas, unpacking, variadics, positional-only or keyword-only parameters.
+`tampilkan` still accepts only positional values. Functions cannot be passed
+around as values or called through arbitrary expressions.
+
+The root `utama` still declares zero or two parameters with the existing argument
+types. A valid two-parameter entrypoint may declare defaults, but the CLI supplies
+both values and skips those defaults. An optional parameter alone does not make
+a valid root entrypoint. A library's `utama` is an ordinary imported function.
+
 ### Mandatory types
 
 Every variable, constant, parameter, and function return needs an annotation.
@@ -419,8 +475,9 @@ possibly zero-iteration even with a true or omitted condition. `kosong` and
 `apapun` allow bare returns and fallthrough. Types do not establish initialization.
 
 Value contracts run at binding stores, after an augmented/postfix update computes
-its result, at parameter entry, and at returns. All caller arguments evaluate
-left to right before parameter checks; a mismatch prevents body execution.
+its result, at parameter entry, and at returns. All supplied arguments evaluate
+in written order before parameter checks; defaults and checks then follow
+declaration order. A mismatch prevents body execution.
 External Python callers receive the same checks. Failed assignments leave the
 previous binding unchanged. Mismatches raise native `TypeError` tracebacks with
 the expected/actual type, function/binding, source line, and nested element path.

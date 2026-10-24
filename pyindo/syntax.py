@@ -89,20 +89,25 @@ class Parser:
 
   def parse_function(self) -> Function:
     """
-    Parse a mandatory typed positional signature and its braced function body.
+    Parse typed parameters with trailing defaults and a braced function body.
     """
 
     opening = self.expect("fungsi")
     name = self.expect_name()
     self.expect("(")
     parameters = []
+    found_default = False
 
     if self.current.text != ")":
       while True:
         parameter = self.expect_name("parameter name or ')'")
         self.expect(":")
         annotation = self.parse_type_annotation()
-        parameters.append(Parameter(parameter.text, parameter.span, annotation))
+        default = self.parse_expression() if self.match("=") else None
+        if default is None and found_default:
+          raise PyIndoError("Required parameter cannot follow a default parameter", parameter.span)
+        found_default = found_default or default is not None
+        parameters.append(Parameter(parameter.text, parameter.span, annotation, default))
 
         if not self.match(","):
           break

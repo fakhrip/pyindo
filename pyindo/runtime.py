@@ -11,6 +11,8 @@ EX_NOINPUT = 66
 EX_SOFTWARE = 70
 _USER_ARGUMENTS: ContextVar[tuple[str, ...]] = ContextVar("pyindo_user_arguments", default=())
 _UNINITIALIZED_MODULE_VALUE = object()
+# Identity alone distinguishes omission from every explicitly supplied value.
+_MISSING_ARGUMENT = object()
 MODULE_VALUE_NAMES = "<pyindo:module_value_names>"
 
 

@@ -238,6 +238,7 @@ class Parameter:
   name: str
   span: SourceSpan
   annotation: TypeAnnotation | None = None
+  default: Expression | None = None
 
 
 @dataclass(frozen=True)

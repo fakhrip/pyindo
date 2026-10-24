@@ -67,10 +67,12 @@ Milestone 7 adds typed iterator loops over strings, collections, and iterable
 values supplied by an embedding Python program.
 Milestone 8 adds local `.pyind` modules with named imports, aliases, and namespace
 calls while retaining each file's own function globals and type contracts.
+Milestone 9 adds typed module-level variables/constants, ordered initialization,
+and live value imports with rebinding controlled by the declaring module.
 
 | Available and tested | Still planned or incomplete |
 | --- | --- |
-| Function-local `variabel`, `konstanta`, and mutable reassignment | Module variables, closures, and nested functions |
+| Function-local and module-level typed variables/constants and reassignment | Closures and nested functions |
 | Typed positional parameters, nested calls, forward calls, and recursion | Default/keyword/variadic parameters and first-class functions |
 | Real returns, typed argv/argc, and entrypoint-selected process status | Default/keyword/variadic entrypoint arguments |
 | Integers, decimals, unary signs, arithmetic/bitwise precedence, and comparisons | Chained comparisons and collection in-place arithmetic |
@@ -83,7 +85,7 @@ calls while retaining each file's own function globals and type contracts.
 | `didalam` membership and contextual `tidak kosong` predicates | Infix `tidak didalam` and chained predicates |
 | Mandatory annotations, checked list copies, and runtime type contracts | General static expression inference and user-defined types |
 | Unicode/multiline strings, escapes, `${expression}`, and comments | Raw/byte string prefixes |
-| Local file imports, aliases, typed imported functions, and namespace calls | Packages, reexports, wildcard/Python imports, and general attribute access |
+| Local imports, live values, typed functions, aliases, and namespace reads/calls | Packages, reexports, wildcard/Python imports, and general attribute access |
 
 ```pyindo
 fungsi utama(): kosong {
@@ -284,10 +286,11 @@ fungsi utama(): kosong {
 }
 ```
 
-This prints `jumlah: 5|12`. Named imports accept several functions separated by
+This prints `jumlah: 5|12`. Named imports accept functions and values separated by
 commas, each with an optional `sebagai` alias. Namespace imports require an alias
-and allow calls such as `hitung.jumlah(2, 3)`. Qualified access currently supports
-one namespace and a function call. Import words remain contextual identifiers.
+and allow calls such as `hitung.jumlah(2, 3)` and declared value reads such as
+`state.total`. Qualified access supports one namespace/member pair, rather than
+general Python attributes. Import words remain contextual identifiers.
 Imports belong at module level and require literal paths and semicolons.
 
 Paths resolve relative to the importing file, including imports inside libraries.
@@ -298,10 +301,11 @@ errors with source locations. Supplied root source text is authoritative.
 A library may omit `utama`. If it declares one, that function remains an ordinary
 typed function and runs only when explicitly called. The entry file must define
 its own `utama`; imported functions cannot supply it implicitly. Every directly
-declared library function is available for explicit import, including underscore
-names. Imported functions are not automatically reexported; define a wrapper to
-expose composed behavior. Import aliases cannot collide with functions, local
-bindings, reserved module names, or `utama`.
+declared library function or module value is available for explicit import,
+including underscore names. Imported bindings are not automatically reexported;
+define a function wrapper or a new owned value to expose composed behavior.
+Import aliases cannot collide with functions, module values, local bindings,
+reserved module names, or `utama`.
 
 Imported functions keep their defining module's globals, annotations, checked-list
 copies, and constant snapshots. Two libraries can have helpers with the same name.
@@ -314,6 +318,76 @@ Compiled code includes its dependencies, so marshal round trips can run after th
 source files are removed. `-D` includes dependency functions and their original
 filenames. Runtime errors still produce normal tracebacks/status 1; imported code
 does not change the entry file's argv or selected process status.
+
+### Module-level variables and constants
+
+Declarations may appear outside functions. Save this as `state.pyind`:
+
+```pyindo
+variabel total: desimal = 0;
+variabel angka: himpunan<desimal> = [1, 2];
+konstanta awal: himpunan<desimal> = angka;
+
+fungsi tambah(jumlah: desimal): kosong {
+  total += jumlah;
+}
+```
+
+Save this beside it as `main.pyind`, then run `python main.py main.pyind`:
+
+```pyindo
+dari "state.pyind" impor total sebagai jumlah_sekarang, tambah;
+impor "state.pyind" sebagai state;
+
+fungsi utama(): kosong {
+  tampilkan(jumlah_sekarang, "|");
+  tambah(2);
+  state.angka[0] = 9;
+  tampilkan(jumlah_sekarang, "|", state.total, "|", state.awal, "|", state.angka);
+}
+```
+
+This prints `0|2|2|[1, 2]|[9, 2]`. Both import forms read the current owned value
+each time. The owning module's functions can rebind its mutable variables without
+an additional keyword. Other modules cannot assign to an imported name or a
+namespace member; they call an owner function such as `tambah` to rebind it.
+Imported mutable collections still permit checked indexed writes/deletions.
+Constants remain detached, deeply immutable snapshots through either import form.
+
+Ordinary aliases hold their current objects: a local assigned from `state.angka`
+retains that list if the owner later replaces `angka`. A fresh import read sees
+the replacement. A local constant made from an imported value takes a snapshot
+at that declaration, with the same freezing and annotation rules as other constants.
+
+Module declarations require an annotation, initializer and semicolon. Imports and
+functions are available before declaration evaluation, even when written later
+in the file. Dependencies initialize first, in depth-first import order; each
+module's declarations then run once in source order, before the root's automatic
+`utama`. Compilation validates the whole graph without running initializers.
+A state-only library needs no functions or entrypoint. Standalone top-level
+assignments, calls and control statements remain unsupported; calls are allowed
+inside initializer expressions.
+
+A direct initializer read of its own or a later declaration is a compile error.
+If an initializer calls a function that reads or rebinds a later variable, the
+runtime raises `NameError` identifying the uninitialized binding. It cannot use
+a Python builtin or stale value from a previous execution instead. A failure
+prevents importer initialization and the automatic entrypoint; earlier effects
+are not rolled back. Runtime errors retain tracebacks/status 1. Executing the
+code again rebuilds dependencies and resets owned state, even in the same host
+namespace.
+
+Module names cannot conflict with imports, functions, reserved runtime names or
+`utama`; parameters and locals cannot shadow owned or imported module values.
+Every owned store retains its declared type, and failed stores preserve the
+previous binding. Functions and namespaces cannot be used as values, and declared
+values cannot be called, including values annotated `apapun`.
+
+Embedding callers can inspect owned globals as ordinary Python values. Named
+value-import slots contain private live references used by the generated code;
+reading a raw host dictionary slot is not a live-value API. Imported function
+slots remain ordinary function objects. Direct host dictionary edits can bypass
+language contracts; PyIndo source stores and checked collection mutations enforce them.
 
 ### Mandatory types
 

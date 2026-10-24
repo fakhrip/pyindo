@@ -6,7 +6,7 @@ from bytecode.instr import InstrLocation
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, SOURCE_NEWLINE_PATTERN, PyIndoError, SourceSpan
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, ComparisonChain, Conditional, Continue,
   Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
   Program, Return, Switch, Unary, While,
@@ -76,6 +76,88 @@ class EmissionContext:
     return Instr(name, location=location)
 
 
+def emit_comparison_operation(operator: str, context: EmissionContext, span: SourceSpan) -> Instr:
+  """
+  Consume two operands and leave their native comparison or membership result.
+  """
+
+  if operator in ("in", "not in"):
+    return context.instruction("CONTAINS_OP", int(operator == "not in"), span=span)
+  return context.instruction("COMPARE_OP", COMPARISON_OPERATIONS[operator], span=span)
+
+
+def emit_comparison_chain(expression: ComparisonChain, context: EmissionContext) -> list[Instr | Label]:
+  """
+  Keep each middle operand once and return the selected original result object.
+
+  Above any caller stack prefix, a nonfinal comparison leaves [right, result].
+  Success retains right for the next link; failure drops right and keeps result.
+  The final result is returned without a truth test, just like a raw comparison.
+  """
+
+  failed_label, end_label = Label(), Label()
+  instructions = emit_expression(expression.first, context)
+  for link in expression.comparisons[:-1]:
+    instructions.extend([
+      *emit_expression(link.operand, context),
+      context.instruction("SWAP", 2, span=link.span),
+      context.instruction("COPY", 2, span=link.span),
+      emit_comparison_operation(link.operator, context, link.span),
+      context.instruction("COPY", 1, span=link.span),
+      context.instruction("TO_BOOL", span=link.span, has_argument=False),
+      context.instruction("POP_JUMP_IF_FALSE", failed_label, span=link.span),
+      context.instruction("POP_TOP", span=link.span, has_argument=False),
+    ])
+
+  final = expression.comparisons[-1]
+  instructions.extend([
+    *emit_expression(final.operand, context),
+    emit_comparison_operation(final.operator, context, final.span),
+    context.instruction("JUMP_FORWARD", end_label, span=expression.span), failed_label,
+    context.instruction("SWAP", 2, span=expression.span),
+    context.instruction("POP_TOP", span=expression.span, has_argument=False), end_label,
+  ])
+  return instructions
+
+
+def emit_comparison_chain_truth_jump(
+  expression: ComparisonChain, context: EmissionContext, *, when_true: bool, target: Label,
+) -> list[Instr | Label]:
+  """
+  Consume a chain as a condition, testing every visited result exactly once.
+
+  Early failure leaves only the retained middle operand above the caller's
+  prefix. Discard it before routing known false; both exits restore that prefix.
+  Preserving outer logic must materialize a raw chain instead of using this path.
+  """
+
+  failed_label, end_label = Label(), Label()
+  instructions = emit_expression(expression.first, context)
+  for link in expression.comparisons[:-1]:
+    instructions.extend([
+      *emit_expression(link.operand, context),
+      context.instruction("SWAP", 2, span=link.span),
+      context.instruction("COPY", 2, span=link.span),
+      emit_comparison_operation(link.operator, context, link.span),
+      context.instruction("TO_BOOL", span=link.span, has_argument=False),
+      context.instruction("POP_JUMP_IF_FALSE", failed_label, span=link.span),
+    ])
+
+  final = expression.comparisons[-1]
+  instructions.extend([
+    *emit_expression(final.operand, context),
+    emit_comparison_operation(final.operator, context, final.span),
+    context.instruction("TO_BOOL", span=final.span, has_argument=False),
+    context.instruction("POP_JUMP_IF_TRUE" if when_true else "POP_JUMP_IF_FALSE", target, span=final.span),
+    context.instruction("JUMP_FORWARD", end_label, span=expression.span), failed_label,
+    context.instruction("POP_TOP", span=expression.span, has_argument=False),
+  ])
+  if not when_true:
+    instructions.append(context.instruction("JUMP_FORWARD", target, span=expression.span))
+  instructions.append(end_label)
+  return instructions
+
+
 def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]:
   """
   Emit an expression with exactly one result and no discarded intermediate values.
@@ -120,6 +202,9 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
   if isinstance(expression, NonEmpty):
     # Test the source operand once; later jumps only see this exact bool.
     return [*emit_expression(expression.operand, context), instruction("TO_BOOL", has_argument=False)]
+
+  if isinstance(expression, ComparisonChain):
+    return emit_comparison_chain(expression, context)
 
   if isinstance(expression, InterpolatedString):
     instructions = []
@@ -182,10 +267,8 @@ def emit_expression(expression, context: EmissionContext) -> list[Instr | Label]
 
     if expression.operator in BINARY_OPERATIONS:
       instructions.append(instruction("BINARY_OP", BINARY_OPERATIONS[expression.operator]))
-    elif expression.operator == "in":
-      instructions.append(instruction("CONTAINS_OP", 0))
     else:
-      instructions.append(instruction("COMPARE_OP", COMPARISON_OPERATIONS[expression.operator]))
+      instructions.append(emit_comparison_operation(expression.operator, context, expression.span))
 
     return instructions
 
@@ -244,6 +327,9 @@ def emit_truth_jump(
     return emit_truth_jump(
       expression.operand, context, when_true=not when_true, target=target, preserve_value=False,
     )
+
+  if not preserve_value and isinstance(expression, ComparisonChain):
+    return emit_comparison_chain_truth_jump(expression, context, when_true=when_true, target=target)
 
   if isinstance(expression, Conditional):
     false_label, end_label = Label(), Label()

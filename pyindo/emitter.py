@@ -9,7 +9,7 @@ from pyindo.nodes import (
   Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
   Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
-  Program, Return, Unary, While,
+  Program, Return, Switch, Unary, While,
 )
 from pyindo.resolver import FunctionScope, FunctionSignature, ProgramSymbols, ValueBinding, analyze_program
 from pyindo.runtime import MODULE_VALUE_NAMES
@@ -355,10 +355,58 @@ def _contract_context(kind: str, name: str, context: EmissionContext, span: Sour
   return f"{kind} '{name}' of '{context.scope.name}' on line {span.line}"
 
 
+def emit_switch(statement: Switch, context: EmissionContext) -> list[Instr | Label]:
+  """
+  Test ordered values against one captured subject, releasing it before bodies.
+
+  Candidate evaluation preserves the stack prefix, including active iterator
+  slots. Every body and normal exit has the pre-switch stack height, so existing
+  break/continue/return cleanup needs no switch target or hidden local slot.
+  """
+
+  instructions = emit_expression(statement.subject, context)
+  end_label = Label()
+
+  for case in statement.cases:
+    body_label, next_case_label = Label(), Label()
+    for value in case.values:
+      # Keep the original below a fresh copy: [prefix, subject, copy, value].
+      # Rich comparison may return a foreign object; truth-test it exactly once.
+      instructions.extend([
+        context.instruction("COPY", 1, span=value.span),
+        *emit_expression(value, context),
+        context.instruction("COMPARE_OP", Compare.EQ, span=value.span),
+        context.instruction("TO_BOOL", span=value.span, has_argument=False),
+        context.instruction("POP_JUMP_IF_TRUE", body_label, span=value.span),
+      ])
+
+    instructions.extend([
+      context.instruction("JUMP_FORWARD", next_case_label, span=case.span),
+      body_label,
+      context.instruction("POP_TOP", span=case.span, has_argument=False),
+    ])
+    for nested_statement in case.body:
+      instructions.extend(emit_statement(nested_statement, context))
+    instructions.extend([
+      context.instruction("JUMP_FORWARD", end_label, span=case.span), next_case_label,
+    ])
+
+  # Failed candidates still leave the captured subject. Release it on both
+  # fallback and no-match routes, including an explicitly empty fallback.
+  instructions.append(context.instruction("POP_TOP", span=statement.span, has_argument=False))
+  for nested_statement in statement.else_body or []:
+    instructions.extend(emit_statement(nested_statement, context))
+  instructions.append(end_label)
+  return instructions
+
+
 def emit_statement(statement, context: EmissionContext) -> list[Instr | Label]:
   """
   Emit a stack-neutral statement, or terminate the current frame with a return.
   """
+
+  if isinstance(statement, Switch):
+    return emit_switch(statement, context)
 
   if isinstance(statement, (Declaration, Assignment)):
     name = statement.name if isinstance(statement, Declaration) else statement.target

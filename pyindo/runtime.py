@@ -1,3 +1,4 @@
+import operator
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -14,6 +15,22 @@ _UNINITIALIZED_MODULE_VALUE = object()
 # Identity alone distinguishes omission from every explicitly supplied value.
 _MISSING_ARGUMENT = object()
 MODULE_VALUE_NAMES = "<pyindo:module_value_names>"
+
+
+def make_inclusive_slice(start: object, stop: object) -> slice:
+  """
+  Convert two required integer bounds into a forward, inclusive slice key.
+
+  Normalize each index once, without reading container length. Native receivers
+  apply clipping later, after any bound or replacement-iterator side effects.
+  """
+
+  normalized_start = operator.index(start)
+  normalized_stop = operator.index(stop)
+  # Adding one to -1 would become zero and lose the final item. This internal
+  # open stop includes it without allowing omitted or None bounds in the source.
+  exclusive_stop = None if normalized_stop == -1 else normalized_stop + 1
+  return slice(normalized_start, exclusive_stop)
 
 
 @dataclass(frozen=True)

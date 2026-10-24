@@ -45,6 +45,20 @@ class Binary:
 
 
 @dataclass(frozen=True)
+class ComparisonLink:
+  operator: str
+  operand: "Expression"
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
+class ComparisonChain:
+  first: "Expression"
+  comparisons: list[ComparisonLink]
+  span: SourceSpan
+
+
+@dataclass(frozen=True)
 class Logical:
   operator: str
   left: "Expression"
@@ -93,7 +107,7 @@ class InterpolatedString:
 
 
 type Expression = (
-  Literal | Name | ModuleMember | Unary | Binary | Logical | Conditional | ListLiteral | Index | NonEmpty | Call | InterpolatedString
+  Literal | Name | ModuleMember | Unary | Binary | ComparisonChain | Logical | Conditional | ListLiteral | Index | NonEmpty | Call | InterpolatedString
 )
 
 

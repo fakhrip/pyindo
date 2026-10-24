@@ -3,7 +3,8 @@ from dataclasses import replace
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceMap
 from pyindo.lexer import Lexer, StringError, StringExpression, StringText, TokenKind
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, ComparisonChain,
+  ComparisonLink, Conditional, Continue, Expression,
   Declaration, Delete, For, ForEach, Function, If, Import, ImportBinding, Index,
   IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
@@ -449,6 +450,44 @@ class Parser:
       and self.tokens[self.position + 1].text == "kosong"
     )
 
+  def is_comparison_operator(self) -> bool:
+    """
+    Recognize binary comparisons without consuming prefix or postfix negation.
+    """
+
+    return self.current.text in COMPARISONS or (
+      self.current.text == "tidak"
+      and self.tokens[self.position + 1].text == "didalam"
+    )
+
+  def parse_comparison(self, left: Expression) -> Expression:
+    """
+    Read one comparison run, preserving grouped operands and each link's span.
+
+    Right operands bind above comparison power. Only links read here join this
+    chain; a comparison already inside the incoming operand stays grouped.
+    """
+
+    comparisons = []
+    previous = left
+    while self.is_comparison_operator():
+      operator = self.advance()
+      if operator.text == "tidak":
+        self.expect("didalam")
+        symbol = "not in"
+      else:
+        symbol = {"adalah": "==", "bukan": "!=", "didalam": "in"}.get(operator.text, operator.text)
+
+      right = self.parse_expression(11)
+      comparisons.append(ComparisonLink(symbol, right, previous.span.through(right.span)))
+      previous = right
+
+    span = left.span.through(previous.span)
+    if len(comparisons) == 1:
+      link = comparisons[0]
+      return Binary(link.operator, left, link.operand, span)
+    return ComparisonChain(left, comparisons, span)
+
   def parse_expression(self, minimum_power: int = 0):
     """
     Parse with binding powers; power binds above a left unary sign, below a right one.
@@ -472,19 +511,24 @@ class Parser:
 
     compared = False
 
-    while self.current.text in BINDING_POWER or self.is_nonempty_operator():
+    while self.current.text in BINDING_POWER or self.is_nonempty_operator() or self.is_comparison_operator():
       operator = self.current
       nonempty = self.is_nonempty_operator()
-      left_power, right_power = (10, 11) if nonempty else BINDING_POWER[operator.text]
+      comparison = self.is_comparison_operator()
+      left_power, right_power = (10, 11) if nonempty or comparison else BINDING_POWER[operator.text]
 
       if left_power < minimum_power:
         break
 
-      if operator.text in COMPARISONS or nonempty:
+      if comparison or nonempty:
         if compared:
-          raise PyIndoError("Chained comparisons are not supported", operator.span)
+          raise self.expected("parenthesized nonempty predicate before another comparison")
 
         compared = True
+
+      if comparison:
+        expression = self.parse_comparison(expression)
+        continue
 
       if nonempty:
         self.advance()
@@ -506,8 +550,7 @@ class Parser:
         symbol = "and" if operator.text in ("dan", "&&") else "or"
         expression = Logical(symbol, expression, right, span)
       else:
-        symbol = {"adalah": "==", "bukan": "!=", "didalam": "in"}.get(operator.text, operator.text)
-        expression = Binary(symbol, expression, right, span)
+        expression = Binary(operator.text, expression, right, span)
 
     if minimum_power <= 1 and self.match("jika"):
       # Only the false arm associates right without explicit grouping.

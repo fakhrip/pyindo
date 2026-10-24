@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from pyindo.diagnostics import COMPLEXITY_ERROR_MESSAGE, PyIndoError, SourceSpan
 from pyindo.nodes import (
-  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, Conditional, Continue,
+  Assignment, AugmentedAssignment, Binary, Break, Call, CallStatement, ComparisonChain, Conditional, Continue,
   Declaration, Delete, For, ForEach, If, Index, IndexedAssignment, InterpolatedString,
   ListLiteral, Literal, Logical, ModuleMember, Name, NonEmpty,
   Program, Return, Switch, Unary, While,
@@ -183,6 +183,11 @@ class FunctionAnalyzer:
       # Runtime laziness never hides invalid bindings or calls from analysis.
       self.expression(expression.left, initialized)
       self.expression(expression.right, initialized)
+    elif isinstance(expression, ComparisonChain):
+      # Even a runtime-skipped link must have valid, initialized source operands.
+      self.expression(expression.first, initialized)
+      for link in expression.comparisons:
+        self.expression(link.operand, initialized)
     elif isinstance(expression, Conditional):
       # Static diagnostics follow source order, including the unselected arm.
       self.expression(expression.true_value, initialized)

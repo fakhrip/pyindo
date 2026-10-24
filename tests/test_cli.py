@@ -173,7 +173,7 @@ fungsi jumlah(a: apapun, b: apapun): apapun { hasilkan a + b; }
 
   def test_invalid_new_language_syntax_has_a_located_user_error(self):
     for body in (
-      "variabel value: apapun = value;", "missing();", "hasilkan 1 < 2 < 3;",
+      "variabel value: apapun = value;", "missing();", "hasilkan 1 < < 3;",
       "untuk (variabel i: himpunan<> = 0; i < 2; i++) {}", "tampilkan(\"${}\");",
     ):
       with self.subTest(body=body):

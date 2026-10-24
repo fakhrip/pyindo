@@ -63,11 +63,10 @@ fungsi utama(): apapun { hasilkan; }
     self.assertEqual(self.expression("1 | 2 & 3 << 1 < 8").left.operator, "|")
     self.assertEqual(self.expression("1 adalah 1").operator, "==")
 
-  def test_chained_comparisons_are_rejected(self):
-    with self.assertRaises(PyIndoError) as raised:
-      self.expression("1 < 2 < 3")
-
-    self.assertIn("Chained comparisons", raised.exception.message)
+  def test_comparison_chains_preserve_grouped_operands(self):
+    chain = self.expression("1 < 2 < 3")
+    self.assertEqual([link.operator for link in chain.comparisons], ["<", "<"])
+    self.assertIsInstance(self.expression("(1 < 2) < 3").left, Binary)
 
   def test_earlier_syntax_error_is_not_masked_by_later_lexical_error(self):
     with self.assertRaises(PyIndoError) as raised:

@@ -28,7 +28,7 @@ class ConditionalExpressionTests(unittest.TestCase):
   def test_incomplete_conditionals_are_located(self):
     for text in ("1 jika", "1 jika benar", "1 jika selainnya 2", "1 jika benar selainnya",
                  "1 jika benar jika salah selainnya 2 selainnya 3",
-                 "1 jika benar selainnya 2 selainnya 3", "1 < 2 < 3 jika benar selainnya 0"):
+                 "1 jika benar selainnya 2 selainnya 3", "1 < < 3 jika benar selainnya 0"):
       with self.subTest(text=text):
         with self.assertRaises(PyIndoError) as raised:
           self.expression(text)

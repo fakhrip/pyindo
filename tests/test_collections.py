@@ -320,14 +320,12 @@ fungsi utama(): apapun {}
       run_source("fungsi kosong(): apapun {} fungsi utama(): apapun { tampilkan(tidak kosong()); }"), "True",
     )
 
-  def test_predicate_suffixes_and_mixed_comparison_chains_are_rejected(self):
+  def test_malformed_predicate_suffixes_are_rejected(self):
     expressions = (
       "items tidak kosong + 1", "items tidak kosong * 2", "items tidak kosong()",
       "items tidak kosong[0]", "items tidak kosongkan", "items tidak",
       "items tidak kosong tidak kosong", "items tidak kosong == benar",
-      "1 didalam items tidak kosong", "1 didalam items == benar",
-      "1 < 2 didalam items", "1 didalam items didalam items", "1 tidak didalam items",
-      "1 < 2 < 3",
+      "1 didalam items tidak kosong",
     )
     for expression in expressions:
       with self.subTest(expression=expression):

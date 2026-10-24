@@ -135,7 +135,7 @@ fungsi utama(): apapun { tampilkan(tidak kosong(), !!benar, tidak 1 == 2); }
 
     assert_program_result(run_source(source), "TrueTrueTrue7894")
 
-    for expression in ("1 < 2 < 3", "1 + tidak benar", "1 == !salah", "1 &&"):
+    for expression in ("1 < < 3", "1 + tidak benar", "1 == !salah", "1 &&"):
       with self.subTest(expression=expression):
         with self.assertRaises(PyIndoError):
           parse_module(f"fungsi utama(): apapun {{ hasilkan {expression}; }}")
